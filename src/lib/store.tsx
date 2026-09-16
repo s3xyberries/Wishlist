@@ -26,32 +26,48 @@ import type {
 
 const STORAGE_KEY = "pricekeep-state-v1";
 
-function daysAgo(n: number) {
-  const d = new Date();
-  d.setDate(d.getDate() - n);
-  return d.toISOString();
+const EMPTY_STATE: AppState = {
+  products: [],
+  offers: [],
+  priceHistory: [],
+  notifications: [],
+};
+
+/** Fixed anchor so seed data is deterministic (avoids SSR/client hydration mismatch). */
+const SEED_NOW = Date.UTC(2026, 8, 16, 12, 0, 0);
+
+function daysBeforeSeed(n: number) {
+  return new Date(SEED_NOW - n * 24 * 60 * 60 * 1000).toISOString();
 }
 
-function buildHistory(offerId: string, endPrice: number, currency: string): PricePoint[] {
+function buildHistory(
+  offerId: string,
+  endPrice: number,
+  currency: string,
+): PricePoint[] {
   const points: PricePoint[] = [];
   let price = endPrice * 1.18;
+  let step = 0;
   for (let i = 28; i >= 0; i -= 2) {
-    price = Math.round(price * (0.985 + Math.random() * 0.02) * 100) / 100;
+    // Deterministic wobble instead of Math.random()
+    const factor = 0.985 + ((step % 5) * 0.004);
+    price = Math.round(price * factor * 100) / 100;
     if (i === 0) price = endPrice;
     points.push({
-      id: uid("pp"),
+      id: `pp-${offerId}-${i}`,
       offerId,
       price,
       currency,
-      capturedAt: daysAgo(i),
+      capturedAt: daysBeforeSeed(i),
       source: "seed",
     });
+    step += 1;
   }
   return points;
 }
 
 function createSeedState(): AppState {
-  const now = new Date().toISOString();
+  const now = new Date(SEED_NOW).toISOString();
   const product: Product = {
     id: "prod-seed-sony",
     title: "Sony WH-1000XM5 Wireless Noise Cancelling Headphones",
@@ -59,7 +75,7 @@ function createSeedState(): AppState {
     imageUrl:
       "https://images.unsplash.com/photo-1618366712010-f4ae9c647dcb?auto=format&fit=crop&w=400&h=400&q=80",
     queryText: "sony wh-1000xm5",
-    createdAt: daysAgo(12),
+    createdAt: daysBeforeSeed(12),
     notifyEnabled: true,
   };
 
@@ -74,7 +90,7 @@ function createSeedState(): AppState {
       currency: "USD",
       status: "active",
       lastPrice: 328,
-      lastCheckedAt: daysAgo(0),
+      lastCheckedAt: daysBeforeSeed(0),
     },
     {
       id: "offer-sony-ebay",
@@ -86,7 +102,7 @@ function createSeedState(): AppState {
       currency: "USD",
       status: "active",
       lastPrice: 289.5,
-      lastCheckedAt: daysAgo(1),
+      lastCheckedAt: daysBeforeSeed(1),
     },
     {
       id: "offer-sony-generic",
@@ -98,7 +114,7 @@ function createSeedState(): AppState {
       currency: "USD",
       status: "suspected_mismatch",
       lastPrice: 359,
-      lastCheckedAt: daysAgo(2),
+      lastCheckedAt: daysBeforeSeed(2),
     },
   ];
 
@@ -121,12 +137,23 @@ function createSeedState(): AppState {
       offerId: "offer-sony-amazon",
       kind: "price_drop",
       message: "Amazon price for Sony WH-1000XM5 dropped $20 to $328.00.",
-      createdAt: daysAgo(1),
+      createdAt: daysBeforeSeed(1),
       read: false,
     },
   ];
 
   return { products: [product], offers, priceHistory, notifications };
+}
+
+function isAppState(value: unknown): value is AppState {
+  if (!value || typeof value !== "object") return false;
+  const v = value as AppState;
+  return (
+    Array.isArray(v.products) &&
+    Array.isArray(v.offers) &&
+    Array.isArray(v.priceHistory) &&
+    Array.isArray(v.notifications)
+  );
 }
 
 interface WishlistStoreValue {
@@ -149,27 +176,34 @@ interface WishlistStoreValue {
 const WishlistStoreContext = createContext<WishlistStoreValue | null>(null);
 
 export function WishlistStoreProvider({ children }: { children: ReactNode }) {
-  const [state, setState] = useState<AppState>(createSeedState);
+  // Empty on SSR + first client paint so markup matches; seed/localStorage load in effect.
+  const [state, setState] = useState<AppState>(EMPTY_STATE);
   const [ready, setReady] = useState(false);
 
   useEffect(() => {
+    let next = createSeedState();
     try {
       const raw = localStorage.getItem(STORAGE_KEY);
       if (raw) {
-        const parsed = JSON.parse(raw) as AppState;
-        if (parsed?.products && parsed?.offers) {
-          setState(parsed);
+        const parsed: unknown = JSON.parse(raw);
+        if (isAppState(parsed) && parsed.products.length > 0) {
+          next = parsed;
         }
       }
     } catch {
       // keep seed
     }
+    setState(next);
     setReady(true);
   }, []);
 
   useEffect(() => {
     if (!ready) return;
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+    try {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+    } catch {
+      // quota / private mode
+    }
   }, [state, ready]);
 
   const trackProduct = useCallback((result: SearchResult, queryText: string) => {
@@ -268,7 +302,7 @@ export function WishlistStoreProvider({ children }: { children: ReactNode }) {
       if (activeOffers.length === 0) return prev;
 
       const target = activeOffers[0];
-      const drop = Math.round((8 + Math.random() * 18) * 100) / 100;
+      const drop = Math.round((8 + (target.lastPrice % 17)) * 100) / 100;
       const newPrice = Math.max(1, Math.round((target.lastPrice - drop) * 100) / 100);
 
       const newPoint: PricePoint = {

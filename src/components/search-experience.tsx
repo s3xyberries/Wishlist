@@ -71,6 +71,12 @@ export function SearchExperience() {
 
   function onSubmit(e: React.FormEvent) {
     e.preventDefault();
+    e.stopPropagation();
+    void runSearch(query);
+  }
+
+  function onSearchClick(e: React.MouseEvent) {
+    e.preventDefault();
     void runSearch(query);
   }
 
@@ -103,18 +109,36 @@ export function SearchExperience() {
             Amazon, eBay, and generic URL matches — dismiss anything that looks
             wrong.
           </p>
-          <form onSubmit={onSubmit} className="flex flex-col gap-2 sm:flex-row">
+          <form
+            onSubmit={onSubmit}
+            className="flex flex-col gap-2 sm:flex-row"
+            action="#"
+            method="get"
+          >
             <div className="relative flex-1">
               <Search className="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-muted-foreground" />
               <Input
                 value={query}
                 onChange={(e) => setQuery(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") {
+                    e.preventDefault();
+                    void runSearch(query);
+                  }
+                }}
                 placeholder="Try “sony headphones”, “kindle”, or “ipad air”"
                 className="h-11 pl-9"
                 aria-label="Search products"
+                name="q"
+                autoComplete="off"
               />
             </div>
-            <Button type="submit" size="lg" className="h-11 bg-teal-800 hover:bg-teal-700">
+            <Button
+              type="button"
+              size="lg"
+              className="h-11 bg-teal-800 hover:bg-teal-700"
+              onClick={onSearchClick}
+            >
               Search
             </Button>
           </form>
@@ -213,7 +237,10 @@ export function SearchExperience() {
         ) : null}
       </section>
 
-      <Dialog open={confirmOpen} onOpenChange={setConfirmOpen}>
+      <Dialog
+        open={confirmOpen}
+        onOpenChange={(open) => setConfirmOpen(open)}
+      >
         <DialogContent className="sm:max-w-md">
           <DialogHeader>
             <DialogTitle>Confirm this product?</DialogTitle>
