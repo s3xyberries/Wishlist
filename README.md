@@ -13,8 +13,10 @@ npm run dev
 
 Open [http://127.0.0.1:43127](http://127.0.0.1:43127).
 
+`npm run dev` uses **webpack** (not Turbopack) on purpose — in some VM/proxy environments Turbopack’s HMR WebSocket fails and client hydration never finishes (search/wishlist stay broken). Prefer:
+
 ```bash
-npm run build && npm start   # production mode on the same port
+npm run build && npm start   # production mode on the same port (most reliable)
 npm run lint
 ```
 
