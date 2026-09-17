@@ -1,5 +1,7 @@
 import * as cheerio from "cheerio";
 import type { OfferCandidate } from "@/lib/adapters";
+import type { RegionConfig } from "@/lib/region/config";
+import { getRegion } from "@/lib/region/config";
 import type { SearchResult } from "@/lib/types";
 import { fetchHtml, parseMoney, ScrapeError } from "./http";
 
@@ -9,41 +11,22 @@ export interface DiscoverResult {
   note: string;
 }
 
-/** Known brand PDPs we can scrape when marketplace search is blocked. */
-const OFFICIAL_PRODUCTS: Array<{
-  id: string;
-  brand: string;
-  match: RegExp;
-  url: string;
-}> = [
-  {
-    id: "bambu-h2s",
-    brand: "Bambu Lab",
-    match: /bambu.*\bh2s\b|\bh2s\b.*bambu|\bh2s\b.*3d\s*printer/i,
-    url: "https://us.store.bambulab.com/products/h2s",
-  },
-  {
-    id: "bambu-h2d",
-    brand: "Bambu Lab",
-    match: /bambu.*\bh2d\b|\bh2d\b.*bambu/i,
-    url: "https://us.store.bambulab.com/products/h2d",
-  },
-  {
-    id: "bambu-x1c",
-    brand: "Bambu Lab",
-    match: /bambu.*\bx1[\s-]?c(arbon)?\b|\bx1[\s-]?carbon\b/i,
-    url: "https://us.store.bambulab.com/products/x1-carbon",
-  },
-];
+function officialProductsFor(region: RegionConfig) {
+  return region.officialProducts;
+}
 
-function officialUrlFor(product: SearchResult): string | null {
+function officialUrlFor(
+  product: SearchResult,
+  region: RegionConfig,
+): string | null {
   const hay = `${product.title} ${product.brand ?? ""}`.toLowerCase();
-  const hit = OFFICIAL_PRODUCTS.find((p) => p.match.test(hay));
+  const hit = officialProductsFor(region).find((p) => p.match.test(hay));
   return hit?.url ?? null;
 }
 
 async function scrapeOfficialPdp(
-  entry: (typeof OFFICIAL_PRODUCTS)[number],
+  entry: RegionConfig["officialProducts"][number],
+  region: RegionConfig,
 ): Promise<SearchResult | null> {
   const { html } = await fetchHtml(entry.url, {
     timeoutMs: 12_000,
@@ -52,7 +35,7 @@ async function scrapeOfficialPdp(
   if (html.length < 2_000 || /just a moment|cf-browser-verification/i.test(html)) {
     return null;
   }
-  const ld = parseJsonLdProduct(html);
+  const ld = parseJsonLdProduct(html, region.currency);
   const $ = cheerio.load(html);
   const ogPrice = parseMoney(
     $('meta[property="product:price:amount"]').attr("content"),
@@ -69,30 +52,31 @@ async function scrapeOfficialPdp(
     "https://images.unsplash.com/photo-1472851294608-062f824d29cc?auto=format&fit=crop&w=400&h=400&q=80";
 
   return {
-    id: `official-${entry.id}`,
+    id: `official-${region.id}-${entry.id}`,
     title,
     brand: entry.brand,
     imageUrl: image,
     priceSnippet: price,
-    currency: ld?.currency || "USD",
-    merchantHint: `${entry.brand} official store`,
+    currency: ld?.currency || region.currency,
+    merchantHint: `${entry.brand} official store (${region.shortLabel})`,
     sourceHint: "shopping",
   };
 }
 
-/** Live-scrape mapped official brand stores for the query. */
+/** Live-scrape mapped official brand stores for the query + region. */
 export async function searchOfficialStores(
   query: string,
+  region: RegionConfig = getRegion("au"),
 ): Promise<SearchResult[]> {
   const q = query.trim();
   if (!q) return [];
-  const matches = OFFICIAL_PRODUCTS.filter((p) => p.match.test(q));
+  const matches = officialProductsFor(region).filter((p) => p.match.test(q));
   if (!matches.length) return [];
 
   const settled = await Promise.all(
     matches.map(async (entry) => {
       try {
-        return await scrapeOfficialPdp(entry);
+        return await scrapeOfficialPdp(entry, region);
       } catch {
         return null;
       }
@@ -103,6 +87,7 @@ export async function searchOfficialStores(
 
 function parseJsonLdProduct(
   html: string,
+  fallbackCurrency: string,
 ): { name?: string; price?: number; currency?: string; image?: string; url?: string } | null {
   const $ = cheerio.load(html);
   const blocks: unknown[] = [];
@@ -125,11 +110,11 @@ function parseJsonLdProduct(
 
     if (types.includes("Product") || types.includes("ProductGroup")) {
       let price: number | undefined;
-      let currency = "USD";
+      let currency = fallbackCurrency;
       const offers = obj.offers as Record<string, unknown> | undefined;
       if (offers) {
         price = parseMoney(String(offers.price ?? offers.lowPrice ?? "")) ?? undefined;
-        currency = String(offers.priceCurrency ?? "USD");
+        currency = String(offers.priceCurrency ?? fallbackCurrency);
       }
       const variants = obj.hasVariant as Array<Record<string, unknown>> | undefined;
       if ((!price || price <= 0) && Array.isArray(variants)) {
@@ -163,13 +148,14 @@ function parseJsonLdProduct(
 
 export async function discoverGenericOffer(
   product: SearchResult,
+  region: RegionConfig = getRegion("au"),
 ): Promise<DiscoverResult> {
-  const official = officialUrlFor(product);
+  const official = officialUrlFor(product, region);
   if (!official) {
     return {
       candidate: null,
       mode: "none",
-      note: "No official store mapping for this product.",
+      note: `No ${region.shortLabel} official store mapping for this product.`,
     };
   }
 
@@ -181,7 +167,7 @@ export async function discoverGenericOffer(
     if (html.length < 2_000 || /just a moment|cf-browser-verification/i.test(html)) {
       throw new ScrapeError("Official store blocked");
     }
-    const ld = parseJsonLdProduct(html);
+    const ld = parseJsonLdProduct(html, region.currency);
     const $ = cheerio.load(html);
     const ogPrice = parseMoney(
       $('meta[property="product:price:amount"]').attr("content"),
@@ -198,26 +184,26 @@ export async function discoverGenericOffer(
         sourceId: "generic",
         title,
         url: ld?.url || official,
-        merchant: "Official store",
-        currency: ld?.currency || product.currency || "USD",
+        merchant: `Official store (${region.shortLabel})`,
+        currency: ld?.currency || product.currency || region.currency,
         price,
         suspect: false,
       },
       mode: "scrape",
-      note: "Parsed official brand store product page.",
+      note: `Parsed ${region.shortLabel} official brand store product page.`,
     };
   } catch {
     return {
       candidate: null,
       mode: "none",
-      note: "Official store scrape failed.",
+      note: `${region.shortLabel} official store scrape failed.`,
     };
   }
 }
 
 export async function fetchOfficialOrGenericPrice(
   url: string,
-  currency = "USD",
+  currency = "AUD",
 ): Promise<{
   price: number | null;
   currency: string;
@@ -237,7 +223,7 @@ export async function fetchOfficialOrGenericPrice(
     if (html.length < 2_000 || /just a moment|cf-browser-verification/i.test(html)) {
       throw new ScrapeError("Store page blocked");
     }
-    const ld = parseJsonLdProduct(html);
+    const ld = parseJsonLdProduct(html, currency);
     const $ = cheerio.load(html);
     const metaPrice = parseMoney(
       $('meta[property="product:price:amount"]').attr("content"),

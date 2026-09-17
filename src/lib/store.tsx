@@ -12,6 +12,7 @@ import {
 } from "react";
 import { productFromResult } from "./adapters";
 import { uid } from "./format";
+import { DEFAULT_REGION_ID, REGION_COOKIE, isRegionId } from "./region/config";
 import type {
   AppState,
   NotificationEvent,
@@ -22,7 +23,16 @@ import type {
 } from "./types";
 
 /** Bump key to drop old seeded/mock localStorage payloads. */
-const STORAGE_KEY = "pricekeep-state-v3-scrape-only";
+const STORAGE_KEY = "pricekeep-state-v4-au-regions";
+
+function readClientRegion(): string {
+  if (typeof document === "undefined") return DEFAULT_REGION_ID;
+  const match = document.cookie
+    .split("; ")
+    .find((c) => c.startsWith(`${REGION_COOKIE}=`));
+  const value = match?.split("=")[1];
+  return isRegionId(value) ? value : DEFAULT_REGION_ID;
+}
 
 const EMPTY_STATE: AppState = {
   products: [],
@@ -124,11 +134,19 @@ export function WishlistStoreProvider({ children }: { children: ReactNode }) {
     }));
 
     void (async () => {
+      const region = readClientRegion();
       try {
         const res = await fetch("/api/discover", {
           method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ product: result, productId: product.id }),
+          headers: {
+            "Content-Type": "application/json",
+            "x-pricekeep-region": region,
+          },
+          body: JSON.stringify({
+            product: result,
+            productId: product.id,
+            region,
+          }),
         });
         if (!res.ok) return;
         const data = (await res.json()) as {
@@ -139,6 +157,28 @@ export function WishlistStoreProvider({ children }: { children: ReactNode }) {
         const liveOffers = (data.offers ?? []).filter(
           (o) => typeof o.lastPrice === "number" && o.lastPrice > 0,
         );
+        if (liveOffers.length) {
+          void fetch("/api/tracked-offers", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              region,
+              offers: liveOffers.map((o) => ({
+                id: o.id,
+                sourceId: o.sourceId,
+                url: o.url,
+                title: o.title,
+                merchant: o.merchant,
+                currency: o.currency,
+                lastPrice: o.lastPrice,
+                lastCheckedAt: o.lastCheckedAt,
+                productId: product.id,
+                productTitle: product.title,
+                notifyEnabled: true,
+              })),
+            }),
+          });
+        }
         const liveHistory: PricePoint[] = liveOffers.map((o) => ({
           id: uid("pp"),
           offerId: o.id,

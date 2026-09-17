@@ -1,5 +1,7 @@
 import * as cheerio from "cheerio";
 import type { OfferCandidate } from "@/lib/adapters";
+import type { RegionConfig } from "@/lib/region/config";
+import { getRegion } from "@/lib/region/config";
 import type { SearchResult } from "@/lib/types";
 import { fetchHtml, parseMoney, ScrapeError } from "./http";
 
@@ -48,7 +50,10 @@ async function ebayAppToken(): Promise<string> {
   return data.access_token;
 }
 
-async function discoverViaEbayApi(product: SearchResult): Promise<OfferCandidate> {
+async function discoverViaEbayApi(
+  product: SearchResult,
+  region: RegionConfig,
+): Promise<OfferCandidate> {
   const token = await ebayAppToken();
   const url = new URL("https://api.ebay.com/buy/browse/v1/item_summary/search");
   url.searchParams.set("q", product.title);
@@ -58,7 +63,7 @@ async function discoverViaEbayApi(product: SearchResult): Promise<OfferCandidate
     headers: {
       Authorization: `Bearer ${token}`,
       "Content-Type": "application/json",
-      "X-EBAY-C-MARKETPLACE-ID": "EBAY_US",
+      "X-EBAY-C-MARKETPLACE-ID": region.ebayMarketplaceId,
     },
     signal: AbortSignal.timeout(8_000),
   });
@@ -79,22 +84,25 @@ async function discoverViaEbayApi(product: SearchResult): Promise<OfferCandidate
     sourceId: "ebay",
     title: item.title,
     url: item.itemWebUrl,
-    merchant: item.seller?.username ? `eBay · ${item.seller.username}` : "eBay",
-    currency: item.price?.currency ?? product.currency ?? "USD",
+    merchant: item.seller?.username
+      ? `eBay (${region.shortLabel}) · ${item.seller.username}`
+      : `eBay (${region.shortLabel})`,
+    currency: item.price?.currency ?? product.currency ?? region.currency,
     price,
   };
 }
 
 export async function discoverEbayOffer(
   product: SearchResult,
+  region: RegionConfig = getRegion("au"),
 ): Promise<DiscoverResult> {
   if (hasEbayApi()) {
     try {
-      const candidate = await discoverViaEbayApi(product);
+      const candidate = await discoverViaEbayApi(product, region);
       return {
         candidate,
         mode: "api",
-        note: "eBay Browse API search hit.",
+        note: `eBay Browse API (${region.shortLabel}) search hit.`,
       };
     } catch {
       // fall through to scrape
@@ -102,7 +110,7 @@ export async function discoverEbayOffer(
   }
 
   try {
-    const url = `https://www.ebay.com/sch/i.html?_nkw=${encodeURIComponent(product.title)}&_sacat=0&LH_BIN=1`;
+    const url = `https://${region.ebayHost}/sch/i.html?_nkw=${encodeURIComponent(product.title)}&_sacat=0&LH_BIN=1`;
     const { html } = await fetchHtml(url, { timeoutMs: 8_000, minIntervalMs: 3_000 });
     const lower = html.toLowerCase();
     if (
@@ -140,18 +148,18 @@ export async function discoverEbayOffer(
         sourceId: "ebay",
         title,
         url: href.split("?")[0],
-        merchant: "eBay",
-        currency: product.currency || "USD",
+        merchant: `eBay (${region.shortLabel})`,
+        currency: product.currency || region.currency,
         price,
       },
       mode: "scrape",
-      note: "Parsed top eBay search hit.",
+      note: `Parsed top eBay (${region.shortLabel}) search hit.`,
     };
   } catch {
     return {
       candidate: null,
       mode: "none",
-      note: "eBay scrape/API unavailable.",
+      note: `eBay (${region.shortLabel}) scrape/API unavailable.`,
     };
   }
 }

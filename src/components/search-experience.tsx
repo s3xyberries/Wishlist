@@ -18,6 +18,7 @@ import {
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { formatMoney } from "@/lib/format";
+import { useRegion } from "@/lib/region/context";
 import { useWishlistStore } from "@/lib/store";
 import type { SearchResult } from "@/lib/types";
 
@@ -32,6 +33,7 @@ export function SearchExperience() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const initialQ = searchParams.get("q")?.trim() ?? "";
+  const { region, regionId } = useRegion();
   const { trackProduct } = useWishlistStore();
   const [query, setQuery] = useState(initialQ);
   const [submitted, setSubmitted] = useState("");
@@ -63,9 +65,11 @@ export function SearchExperience() {
     }
     setStatus("loading");
     try {
-      const params = new URLSearchParams({ q });
+      const params = new URLSearchParams({ q, region: regionId });
       if (forceRefresh) params.set("refresh", "1");
-      const res = await fetch(`/api/search?${params.toString()}`);
+      const res = await fetch(`/api/search?${params.toString()}`, {
+        headers: { "x-pricekeep-region": regionId },
+      });
       if (!res.ok) throw new Error("Search request failed");
       const data = (await res.json()) as {
         results: CatalogSearchResult[];
@@ -102,7 +106,17 @@ export function SearchExperience() {
       void runSearch(initialQ);
     }, 0);
     return () => window.clearTimeout(id);
-  }, [initialQ]);
+  }, [initialQ, regionId]);
+
+  // Re-run current query when region changes
+  useEffect(() => {
+    if (!submitted) return;
+    const id = window.setTimeout(() => {
+      void runSearch(submitted);
+    }, 0);
+    return () => window.clearTimeout(id);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [regionId]);
 
   function onSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -142,9 +156,10 @@ export function SearchExperience() {
             Find a product. Confirm it. Track the price.
           </h1>
           <p className="text-sm leading-relaxed text-muted-foreground sm:text-base">
-            Successful scrapes land in a shared catalog so the next search can
-            reuse them. Fresh scrapes only run when the catalog is empty or
-            stale — or when you force a refresh.
+            Live scrape for {region.shortLabel} ({region.currency}). Successful
+            scrapes land in a region-scoped shared catalog so the next search can
+            reuse them. Fresh scrapes only run when the catalog is empty or stale
+            — or when you force a refresh.
           </p>
           <form
             onSubmit={onSubmit}

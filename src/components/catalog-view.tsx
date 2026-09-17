@@ -10,6 +10,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { formatMoney, formatRelative } from "@/lib/format";
+import { useRegion } from "@/lib/region/context";
 import { useWishlistStore } from "@/lib/store";
 import type { SearchResult } from "@/lib/types";
 
@@ -28,6 +29,7 @@ type CatalogQuery = {
 
 export function CatalogView() {
   const router = useRouter();
+  const { region, regionId } = useRegion();
   const { trackProduct } = useWishlistStore();
   const [filter, setFilter] = useState("");
   const [applied, setApplied] = useState("");
@@ -39,41 +41,46 @@ export function CatalogView() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  const load = useCallback(async (q: string) => {
-    setLoading(true);
-    setError(null);
-    try {
-      const params = new URLSearchParams();
-      if (q.trim()) params.set("q", q.trim());
-      const res = await fetch(`/api/catalog?${params.toString()}`);
-      if (!res.ok) throw new Error("catalog request failed");
-      const data = (await res.json()) as {
-        products: CatalogProduct[];
-        queries: CatalogQuery[];
-        totalProducts: number;
-        note?: string;
-        ttlMs?: number;
-      };
-      setProducts(data.products);
-      setQueries(data.queries);
-      setTotal(data.totalProducts);
-      setNote(data.note ?? null);
-      if (data.ttlMs) setTtlMs(data.ttlMs);
-    } catch {
-      setError("Could not load the shared catalog.");
-      setProducts([]);
-      setQueries([]);
-    } finally {
-      setLoading(false);
-    }
-  }, []);
+  const load = useCallback(
+    async (q: string) => {
+      setLoading(true);
+      setError(null);
+      try {
+        const params = new URLSearchParams({ region: regionId });
+        if (q.trim()) params.set("q", q.trim());
+        const res = await fetch(`/api/catalog?${params.toString()}`, {
+          headers: { "x-pricekeep-region": regionId },
+        });
+        if (!res.ok) throw new Error("catalog request failed");
+        const data = (await res.json()) as {
+          products: CatalogProduct[];
+          queries: CatalogQuery[];
+          totalProducts: number;
+          note?: string;
+          ttlMs?: number;
+        };
+        setProducts(data.products);
+        setQueries(data.queries);
+        setTotal(data.totalProducts);
+        setNote(data.note ?? null);
+        if (data.ttlMs) setTtlMs(data.ttlMs);
+      } catch {
+        setError("Could not load the shared catalog.");
+        setProducts([]);
+        setQueries([]);
+      } finally {
+        setLoading(false);
+      }
+    },
+    [regionId],
+  );
 
   useEffect(() => {
     const id = window.setTimeout(() => {
-      void load("");
+      void load(filter);
     }, 0);
     return () => window.clearTimeout(id);
-  }, [load]);
+  }, [load, regionId]);
 
   function onFilterSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -90,12 +97,12 @@ export function CatalogView() {
     <div className="space-y-6">
       <div>
         <h1 className="font-heading text-3xl tracking-tight text-teal-950">
-          Shared catalog
+          Shared catalog · {region.shortLabel}
         </h1>
         <p className="mt-1 text-sm text-muted-foreground">
-          Products saved from successful scrapes. Fresh for about{" "}
-          {Math.round(ttlMs / 3_600_000)} hours — search reuses these before
-          scraping again.{" "}
+          Products saved from successful {region.currency} scrapes. Fresh for
+          about {Math.round(ttlMs / 3_600_000)} hours — search reuses these
+          before scraping again.{" "}
           <Link href="/" className="underline underline-offset-2">
             Back to search
           </Link>

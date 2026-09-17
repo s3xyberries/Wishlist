@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { searchWithCatalog } from "@/lib/catalog/search";
+import { regionFromRequest } from "@/lib/region/server";
 
 export const dynamic = "force-dynamic";
 
@@ -10,6 +11,7 @@ export async function GET(request: Request) {
     searchParams.get("refresh") === "1" ||
     searchParams.get("refresh") === "true" ||
     searchParams.get("force") === "1";
+  const region = await regionFromRequest(request);
 
   if (!q.trim()) {
     return NextResponse.json({
@@ -17,11 +19,13 @@ export async function GET(request: Request) {
       mode: "empty",
       note: "Empty query.",
       origin: "catalog",
+      region: region.id,
+      currency: region.currency,
     });
   }
 
   try {
-    const payload = await searchWithCatalog(q, { forceRefresh });
+    const payload = await searchWithCatalog(q, region, { forceRefresh });
     return NextResponse.json(payload);
   } catch {
     return NextResponse.json({
@@ -29,6 +33,8 @@ export async function GET(request: Request) {
       mode: "error",
       note: "Search scrape failed unexpectedly.",
       origin: "scrape",
+      region: region.id,
+      currency: region.currency,
     });
   }
 }

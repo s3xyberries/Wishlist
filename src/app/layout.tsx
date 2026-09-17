@@ -2,6 +2,7 @@ import type { Metadata, Viewport } from "next";
 import { Fraunces, Manrope } from "next/font/google";
 import { AppShell } from "@/components/app-shell";
 import { ServiceWorkerRegister } from "@/components/sw-register";
+import { RegionProvider } from "@/lib/region/context";
 import { WishlistStoreProvider } from "@/lib/store";
 import "./globals.css";
 
@@ -45,8 +46,10 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
     >
       <body className="min-h-full flex flex-col font-sans">
         <WishlistStoreProvider>
-          <ServiceWorkerRegister />
-          <AppShell>{children}</AppShell>
+          <RegionProvider>
+            <ServiceWorkerRegister />
+            <AppShell>{children}</AppShell>
+          </RegionProvider>
         </WishlistStoreProvider>
       </body>
     </html>

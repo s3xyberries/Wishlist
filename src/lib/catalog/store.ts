@@ -1,37 +1,14 @@
 import { createHash } from "node:crypto";
-import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
-import path from "node:path";
 import type { SearchResult } from "@/lib/types";
+import type { RegionId } from "@/lib/region/config";
+import { getDb } from "./db";
 import {
   CATALOG_TTL_MS,
-  type CatalogFile,
   type CatalogOrigin,
   type CatalogProduct,
   type CatalogQueryEntry,
   type CatalogSearchHit,
 } from "./types";
-
-const DATA_DIR = path.join(process.cwd(), ".data");
-const CATALOG_PATH = path.join(DATA_DIR, "shared-catalog.json");
-
-const EMPTY: CatalogFile = {
-  version: 1,
-  updatedAt: new Date(0).toISOString(),
-  products: {},
-  queries: {},
-};
-
-/** Serialize catalog reads/writes across concurrent requests in this process. */
-let chain: Promise<unknown> = Promise.resolve();
-
-function withLock<T>(fn: () => Promise<T>): Promise<T> {
-  const run = chain.then(fn, fn);
-  chain = run.then(
-    () => undefined,
-    () => undefined,
-  );
-  return run;
-}
 
 export function normalizeQuery(raw: string): string {
   return raw
@@ -42,8 +19,9 @@ export function normalizeQuery(raw: string): string {
     .trim();
 }
 
-export function productFingerprint(result: SearchResult): string {
+export function productFingerprint(result: SearchResult, region: RegionId): string {
   const base = [
+    region,
     result.brand?.toLowerCase().trim() ?? "",
     result.title.toLowerCase().replace(/[^\w\s]/g, " ").replace(/\s+/g, " ").trim(),
     result.merchantHint.toLowerCase().trim(),
@@ -58,25 +36,42 @@ function isFresh(iso: string, ttlMs = CATALOG_TTL_MS): boolean {
   return Date.now() - t < ttlMs;
 }
 
-async function readCatalogUnlocked(): Promise<CatalogFile> {
-  try {
-    const raw = await readFile(CATALOG_PATH, "utf8");
-    const parsed = JSON.parse(raw) as CatalogFile;
-    if (parsed?.version !== 1 || !parsed.products || !parsed.queries) {
-      return structuredClone(EMPTY);
-    }
-    return parsed;
-  } catch {
-    return structuredClone(EMPTY);
-  }
-}
+type ProductRow = {
+  id: string;
+  region: string;
+  fingerprint: string;
+  title: string;
+  brand: string | null;
+  image_url: string;
+  price_snippet: number;
+  currency: string;
+  merchant_hint: string;
+  source_hint: string;
+  rating: number | null;
+  review_count: number | null;
+  last_scraped_at: string;
+  scrape_mode: string;
+  hit_count: number;
+};
 
-async function writeCatalogUnlocked(file: CatalogFile): Promise<void> {
-  await mkdir(DATA_DIR, { recursive: true });
-  file.updatedAt = new Date().toISOString();
-  const tmp = `${CATALOG_PATH}.${process.pid}.${Date.now()}.tmp`;
-  await writeFile(tmp, JSON.stringify(file, null, 2), "utf8");
-  await rename(tmp, CATALOG_PATH);
+function rowToProduct(row: ProductRow): CatalogProduct {
+  return {
+    id: row.id,
+    fingerprint: row.fingerprint,
+    title: row.title,
+    brand: row.brand ?? undefined,
+    imageUrl: row.image_url,
+    priceSnippet: row.price_snippet,
+    currency: row.currency,
+    merchantHint: row.merchant_hint,
+    sourceHint: row.source_hint as CatalogProduct["sourceHint"],
+    rating: row.rating ?? undefined,
+    reviewCount: row.review_count ?? undefined,
+    lastScrapedAt: row.last_scraped_at,
+    scrapeMode: row.scrape_mode as CatalogProduct["scrapeMode"],
+    queryKeys: [],
+    hitCount: row.hit_count,
+  };
 }
 
 function toSearchHit(product: CatalogProduct): CatalogSearchHit {
@@ -96,48 +91,9 @@ function toSearchHit(product: CatalogProduct): CatalogSearchHit {
   };
 }
 
-function upsertProduct(
-  file: CatalogFile,
-  result: SearchResult,
-  scrapeMode: Exclude<CatalogOrigin, "catalog">,
-  queryKey: string,
-  now: string,
-): CatalogProduct {
-  const fingerprint = productFingerprint(result);
-  const existing = file.products[fingerprint];
-  const queryKeys = new Set(existing?.queryKeys ?? []);
-  if (queryKey) queryKeys.add(queryKey);
-
-  const next: CatalogProduct = {
-    id: existing?.id ?? `cat-${fingerprint}`,
-    fingerprint,
-    title: result.title,
-    brand: result.brand,
-    imageUrl: result.imageUrl,
-    priceSnippet: result.priceSnippet,
-    currency: result.currency,
-    merchantHint: result.merchantHint,
-    sourceHint: result.sourceHint,
-    rating: result.rating ?? existing?.rating,
-    reviewCount: result.reviewCount ?? existing?.reviewCount,
-    lastScrapedAt: now,
-    scrapeMode,
-    queryKeys: [...queryKeys].slice(0, 24),
-    hitCount: (existing?.hitCount ?? 0) + 1,
-  };
-  file.products[next.id] = next;
-  // Drop legacy fingerprint-keyed row if present
-  if (file.products[fingerprint] && fingerprint !== next.id) {
-    delete file.products[fingerprint];
-  }
-  return next;
-}
-
-/**
- * Look up a fresh query cache entry. Returns hits when present and within TTL.
- */
 export async function lookupQueryCache(
   query: string,
+  region: RegionId,
   ttlMs = CATALOG_TTL_MS,
 ): Promise<{
   hits: CatalogSearchHit[];
@@ -147,135 +103,244 @@ export async function lookupQueryCache(
   const queryKey = normalizeQuery(query);
   if (!queryKey) return null;
 
-  return withLock(async () => {
-    const file = await readCatalogUnlocked();
-    const entry = file.queries[queryKey];
-    if (!entry) return { hits: [], entry: null, fresh: false };
+  const db = getDb();
+  const entryRow = db
+    .prepare(
+      `SELECT query_key, query_text, scraped_at, source_mode
+       FROM catalog_queries WHERE region = ? AND query_key = ?`,
+    )
+    .get(region, queryKey) as
+    | {
+        query_key: string;
+        query_text: string;
+        scraped_at: string;
+        source_mode: string;
+      }
+    | undefined;
 
-    const hits = entry.productIds
-      .map((id) => {
-        const direct = file.products[id];
-        if (direct) return toSearchHit(direct);
-        const fp = id.startsWith("cat-") ? id.slice(4) : id;
-        const byFp = Object.values(file.products).find(
-          (p) => p.fingerprint === fp || p.id === `cat-${fp}`,
-        );
-        return byFp ? toSearchHit(byFp) : null;
-      })
-      .filter((h): h is CatalogSearchHit => h != null);
+  if (!entryRow) return { hits: [], entry: null, fresh: false };
 
-    return {
-      hits,
-      entry,
-      fresh: hits.length > 0 && isFresh(entry.scrapedAt, ttlMs),
-    };
-  });
+  const links = db
+    .prepare(
+      `SELECT product_id FROM catalog_query_products
+       WHERE region = ? AND query_key = ? ORDER BY position ASC`,
+    )
+    .all(region, queryKey) as Array<{ product_id: string }>;
+
+  const hits: CatalogSearchHit[] = [];
+  for (const link of links) {
+    const row = db
+      .prepare(`SELECT * FROM catalog_products WHERE id = ?`)
+      .get(link.product_id) as ProductRow | undefined;
+    if (row) hits.push(toSearchHit(rowToProduct(row)));
+  }
+
+  const entry: CatalogQueryEntry = {
+    queryKey: entryRow.query_key,
+    queryText: entryRow.query_text,
+    productIds: links.map((l) => l.product_id),
+    scrapedAt: entryRow.scraped_at,
+    sourceMode: entryRow.source_mode as CatalogQueryEntry["sourceMode"],
+  };
+
+  return {
+    hits,
+    entry,
+    fresh: hits.length > 0 && isFresh(entry.scrapedAt, ttlMs),
+  };
 }
 
-/**
- * Soft match: products whose title/brand contain all query tokens.
- * Used when exact query cache misses — still avoids a scrape when possible.
- */
 export async function matchCatalogProducts(
   query: string,
+  region: RegionId,
   limit = 12,
 ): Promise<CatalogSearchHit[]> {
   const queryKey = normalizeQuery(query);
   const tokens = queryKey.split(" ").filter((t) => t.length >= 2);
   if (!tokens.length) return [];
 
-  return withLock(async () => {
-    const file = await readCatalogUnlocked();
-    const scored = Object.values(file.products)
-      .map((p) => {
-        const hay = `${p.brand ?? ""} ${p.title}`.toLowerCase();
-        if (!tokens.every((t) => hay.includes(t))) return null;
-        // Prefer fresher + more hit products
-        const scrapedAt = Date.parse(p.lastScrapedAt);
-        const ageHours = Number.isFinite(scrapedAt)
-          ? (Date.now() - scrapedAt) / 3_600_000
-          : 999;
-        const score = p.hitCount * 2 - Math.min(ageHours, 48) + (isFresh(p.lastScrapedAt) ? 10 : 0);
-        return { product: p, score };
-      })
-      .filter((x): x is { product: CatalogProduct; score: number } => x != null)
-      .sort((a, b) => b.score - a.score)
-      .slice(0, limit);
+  const db = getDb();
+  const rows = db
+    .prepare(`SELECT * FROM catalog_products WHERE region = ?`)
+    .all(region) as ProductRow[];
 
-    return scored.map(({ product }) => toSearchHit(product));
-  });
+  const scored = rows
+    .map((row) => {
+      const p = rowToProduct(row);
+      const hay = `${p.brand ?? ""} ${p.title}`.toLowerCase();
+      if (!tokens.every((t) => hay.includes(t))) return null;
+      const scrapedAt = Date.parse(p.lastScrapedAt);
+      const ageHours = Number.isFinite(scrapedAt)
+        ? (Date.now() - scrapedAt) / 3_600_000
+        : 999;
+      const score =
+        p.hitCount * 2 - Math.min(ageHours, 48) + (isFresh(p.lastScrapedAt) ? 10 : 0);
+      return { product: p, score };
+    })
+    .filter((x): x is { product: CatalogProduct; score: number } => x != null)
+    .sort((a, b) => b.score - a.score)
+    .slice(0, limit);
+
+  return scored.map(({ product }) => toSearchHit(product));
 }
 
 export async function recordSearchResults(
   query: string,
+  region: RegionId,
   results: SearchResult[],
   sourceMode: Exclude<CatalogOrigin, "catalog">,
 ): Promise<CatalogSearchHit[]> {
   const queryKey = normalizeQuery(query);
   if (!queryKey || results.length === 0) return [];
 
-  return withLock(async () => {
-    const file = await readCatalogUnlocked();
-    const now = new Date().toISOString();
-    const products = results.map((r) =>
-      upsertProduct(file, r, sourceMode, queryKey, now),
+  const db = getDb();
+  const now = new Date().toISOString();
+  const products: CatalogProduct[] = [];
+
+  db.exec("BEGIN");
+  try {
+    const upsert = db.prepare(`
+      INSERT INTO catalog_products (
+        id, region, fingerprint, title, brand, image_url, price_snippet, currency,
+        merchant_hint, source_hint, rating, review_count, last_scraped_at, scrape_mode, hit_count
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1)
+      ON CONFLICT(region, fingerprint) DO UPDATE SET
+        title = excluded.title,
+        brand = excluded.brand,
+        image_url = excluded.image_url,
+        price_snippet = excluded.price_snippet,
+        currency = excluded.currency,
+        merchant_hint = excluded.merchant_hint,
+        source_hint = excluded.source_hint,
+        rating = COALESCE(excluded.rating, catalog_products.rating),
+        review_count = COALESCE(excluded.review_count, catalog_products.review_count),
+        last_scraped_at = excluded.last_scraped_at,
+        scrape_mode = excluded.scrape_mode,
+        hit_count = catalog_products.hit_count + 1
+    `);
+
+    for (const result of results) {
+      const fingerprint = productFingerprint(result, region);
+      const id = `cat-${region}-${fingerprint}`;
+      upsert.run(
+        id,
+        region,
+        fingerprint,
+        result.title,
+        result.brand ?? null,
+        result.imageUrl,
+        result.priceSnippet,
+        result.currency,
+        result.merchantHint,
+        result.sourceHint,
+        result.rating ?? null,
+        result.reviewCount ?? null,
+        now,
+        sourceMode,
+      );
+      const row = db
+        .prepare(`SELECT * FROM catalog_products WHERE id = ?`)
+        .get(id) as ProductRow;
+      products.push(rowToProduct(row));
+    }
+
+    db.prepare(
+      `INSERT OR REPLACE INTO catalog_queries (region, query_key, query_text, scraped_at, source_mode)
+       VALUES (?, ?, ?, ?, ?)`,
+    ).run(region, queryKey, query.trim(), now, sourceMode);
+
+    db.prepare(
+      `DELETE FROM catalog_query_products WHERE region = ? AND query_key = ?`,
+    ).run(region, queryKey);
+
+    const link = db.prepare(
+      `INSERT INTO catalog_query_products (region, query_key, product_id, position)
+       VALUES (?, ?, ?, ?)`,
     );
+    products.forEach((p, i) => link.run(region, queryKey, p.id, i));
 
-    file.queries[queryKey] = {
-      queryKey,
-      queryText: query.trim(),
-      productIds: products.map((p) => p.id),
-      scrapedAt: now,
-      sourceMode,
-    };
+    db.exec("COMMIT");
+  } catch (err) {
+    db.exec("ROLLBACK");
+    throw err;
+  }
 
-    await writeCatalogUnlocked(file);
-    return products.map(toSearchHit);
-  });
+  return products.map(toSearchHit);
 }
 
 export async function listCatalog(options?: {
   q?: string;
+  region?: RegionId;
   limit?: number;
 }): Promise<{
   products: CatalogSearchHit[];
   queries: CatalogQueryEntry[];
   totalProducts: number;
   updatedAt: string | null;
+  region: RegionId;
 }> {
   const limit = options?.limit ?? 40;
+  const region = options?.region ?? "au";
   const q = options?.q ? normalizeQuery(options.q) : "";
   const tokens = q.split(" ").filter(Boolean);
 
-  return withLock(async () => {
-    const file = await readCatalogUnlocked();
-    let products = Object.values(file.products);
-    if (tokens.length) {
-      products = products.filter((p) => {
-        const hay = `${p.brand ?? ""} ${p.title} ${p.merchantHint}`.toLowerCase();
-        return tokens.every((t) => hay.includes(t));
-      });
-    }
-    products = products
-      .sort((a, b) => b.lastScrapedAt.localeCompare(a.lastScrapedAt))
-      .slice(0, limit);
+  const db = getDb();
+  let rows = db
+    .prepare(
+      `SELECT * FROM catalog_products WHERE region = ? ORDER BY last_scraped_at DESC`,
+    )
+    .all(region) as ProductRow[];
 
-    const queries = Object.values(file.queries)
-      .sort((a, b) => b.scrapedAt.localeCompare(a.scrapedAt))
-      .slice(0, 30);
+  if (tokens.length) {
+    rows = rows.filter((row) => {
+      const hay = `${row.brand ?? ""} ${row.title} ${row.merchant_hint}`.toLowerCase();
+      return tokens.every((t) => hay.includes(t));
+    });
+  }
 
+  const totalProducts = (
+    db
+      .prepare(`SELECT COUNT(*) AS n FROM catalog_products WHERE region = ?`)
+      .get(region) as { n: number }
+  ).n;
+
+  const products = rows.slice(0, limit).map((r) => toSearchHit(rowToProduct(r)));
+
+  const queryRows = db
+    .prepare(
+      `SELECT query_key, query_text, scraped_at, source_mode
+       FROM catalog_queries WHERE region = ? ORDER BY scraped_at DESC LIMIT 30`,
+    )
+    .all(region) as Array<{
+    query_key: string;
+    query_text: string;
+    scraped_at: string;
+    source_mode: string;
+  }>;
+
+  const queries: CatalogQueryEntry[] = queryRows.map((qr) => {
+    const links = db
+      .prepare(
+        `SELECT product_id FROM catalog_query_products
+         WHERE region = ? AND query_key = ? ORDER BY position`,
+      )
+      .all(region, qr.query_key) as Array<{ product_id: string }>;
     return {
-      products: products.map(toSearchHit),
-      queries,
-      totalProducts: Object.keys(file.products).length,
-      updatedAt:
-        file.updatedAt && file.updatedAt !== new Date(0).toISOString()
-          ? file.updatedAt
-          : null,
+      queryKey: qr.query_key,
+      queryText: qr.query_text,
+      productIds: links.map((l) => l.product_id),
+      scrapedAt: qr.scraped_at,
+      sourceMode: qr.source_mode as CatalogQueryEntry["sourceMode"],
     };
   });
-}
 
-export function catalogPathForDebug(): string {
-  return CATALOG_PATH;
+  const latest = rows[0]?.last_scraped_at ?? null;
+
+  return {
+    products,
+    queries,
+    totalProducts,
+    updatedAt: latest,
+    region,
+  };
 }

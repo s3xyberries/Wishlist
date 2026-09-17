@@ -1,4 +1,6 @@
 import { candidatesToOffers, type OfferCandidate } from "@/lib/adapters";
+import type { RegionConfig } from "@/lib/region/config";
+import { getRegion } from "@/lib/region/config";
 import type { Offer, SearchResult } from "@/lib/types";
 import { discoverAmazonOffer } from "./amazon";
 import { discoverEbayOffer } from "./ebay";
@@ -13,19 +15,22 @@ export interface LiveDiscoverResponse {
     generic: string;
   };
   notes: string[];
+  region: string;
 }
 
 /**
  * Fan-out live offer discovery only — no stub/mock candidates.
+ * Targets Amazon/eBay/official hosts for the active region.
  */
 export async function discoverLiveOffers(
   product: SearchResult,
   productId?: string,
+  region: RegionConfig = getRegion("au"),
 ): Promise<LiveDiscoverResponse> {
   const [amazon, ebay, generic] = await Promise.all([
-    discoverAmazonOffer(product),
-    discoverEbayOffer(product),
-    discoverGenericOffer(product),
+    discoverAmazonOffer(product, region),
+    discoverEbayOffer(product, region),
+    discoverGenericOffer(product, region),
   ]);
 
   const paired = [
@@ -46,6 +51,7 @@ export async function discoverLiveOffers(
       generic: generic.mode,
     },
     notes: paired.map((p) => p.result.note),
+    region: region.id,
   };
 
   if (productId) {

@@ -37,13 +37,6 @@ export interface CatalogQueryEntry {
   sourceMode: Exclude<CatalogOrigin, "catalog">;
 }
 
-export interface CatalogFile {
-  version: 1;
-  updatedAt: string;
-  products: Record<string, CatalogProduct>;
-  queries: Record<string, CatalogQueryEntry>;
-}
-
 export interface CatalogSearchHit extends SearchResult {
   fromCatalog: boolean;
   lastScrapedAt?: string;

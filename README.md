@@ -1,6 +1,6 @@
 # Pricekeep
 
-Wishlist and price-tracking web app (PWA-ready). Search products via live scrape (or SerpAPI), confirm the right match, track Amazon/eBay/official sources, review price history, and see in-app alerts.
+Wishlist and price-tracking web app (PWA-ready). Defaults to **Australia (AUD)** with a region switcher (AU/US). Search via live scrape (or SerpAPI), confirm the right match, track Amazon/eBay/official sources, review price history, and see in-app alerts.
 
 Canonical GitHub repo: **https://github.com/s3xyberries/Wishlist**
 
@@ -13,62 +13,68 @@ npm run dev
 
 Open [http://127.0.0.1:43127](http://127.0.0.1:43127).
 
-`npm run dev` uses **webpack** and allows `127.0.0.1` via `allowedDevOrigins`. Next 16 otherwise treats `127.0.0.1` vs `localhost` as cross-origin, blocks `/_next/hmr`, and client hydration never finishes. Prefer:
+`npm run dev` uses **webpack** and allows `127.0.0.1` via `allowedDevOrigins`. Prefer:
 
 ```bash
 npm run build && npm start   # production mode on the same port (most reliable)
 npm run lint
+npm run price-check:daily    # one-shot recheck of tracked offers
+npm run scheduler            # local daily cron (06:00 + boot run)
 ```
 
 ## What works now
 
-- Product search via `/api/search`: **shared catalog first** (6h TTL) → SerpAPI → Google Shopping HTML → Amazon search → mapped official brand PDPs. `?refresh=1` forces a re-scrape.
-- Shared catalog browse at `/catalog` and `/api/catalog` (server file store under `.data/`)
+- **Region switcher (AU default / US)** — currency, Google `gl`, Amazon/eBay hosts, and official PDPs follow the active region
+- Product search via `/api/search?region=au`: **SQLite catalog first** (6h TTL) → SerpAPI → Google Shopping → Amazon (.com.au) → official brand PDPs. `?refresh=1` forces a re-scrape
+- Shared catalog browse at `/catalog` (region-scoped)
 - Confirm / intercept step before adding to the wishlist
-- On track: `/api/discover` scrapes Amazon + eBay (or eBay Browse API) and mapped official PDPs — live offers only
+- On track: `/api/discover` scrapes regional Amazon + eBay + official PDPs; registers offers for the daily scheduler
 - Wishlist with notify toggle and remove
 - Product detail: tracked sources, dismiss/restore wrong matches
-- User-triggered “Check live price” via `/api/price-check` (scrape/API only; failures surface as alerts, not fake prices)
-- In-app notifications feed (localStorage)
-- PWA manifest + basic service worker shell
+- User-triggered “Check live price” via `/api/price-check`
+- Daily scheduler: `npm run price-check:daily` or `GET /api/scheduler/run`
+- In-app notifications feed (localStorage) + PWA shell
 
-## Shared catalog
+## Shared catalog (SQLite)
 
-Successful search scrapes are written to `.data/shared-catalog.json` (gitignored). Later searches with the same (or token-matching) query reuse those rows while fresh — UI badges show **From catalog** vs **Fresh scrape**. Force refresh updates the catalog. This is shared across users on the same server instance, not mock data.
+Successful scrapes land in **`.data/pricekeep.sqlite`** (not JSON). Legacy `.data/shared-catalog.json` is migrated once on startup. Catalog rows are keyed by **region**; TTL reuse is per-region. UI badges show **From catalog** vs **Fresh scrape**.
 
 ## Scrape policy (important)
 
-Live HTML fetches are **user-initiated only** (search, track/discover, manual price check). There is **no cron / bulk scrape** and **no mock/stub fallback data**. Shared catalog reuse is the primary way we avoid repeat scrapes. Requests use a polite User-Agent, short timeouts, per-host rate limits, and a short in-memory cache. Retailer ToS may still disallow scraping — prefer official APIs when you have keys.
+Live HTML fetches are **user-initiated** (search, track/discover, manual price check) plus the **optional daily scheduler** for already-tracked offers. There is **no mock/stub fallback data**. Shared catalog reuse avoids repeat scrapes. Requests use a polite User-Agent, short timeouts, per-host rate limits, and a short in-memory cache.
 
-## Live sources
+## Live sources (AU default)
 
-| Piece | Status |
-|-------|--------|
-| Google Shopping | SerpAPI if `SERPAPI_API_KEY`; else Google HTML; else Amazon search scrape; else mapped official PDPs |
-| Amazon offers / prices | Light search/product HTML with title scoring (avoids accessory false matches) |
-| eBay offers / prices | Browse API if credentials; else light HTML (often 403 from cloud IPs) |
-| Official / generic | Mapped official PDPs (e.g. Bambu Lab store) scraped via JSON-LD — also used as search fallback |
-| Push / email alerts | In-app feed only |
+| Piece | AU | US |
+|-------|----|----|
+| Currency | AUD | USD |
+| Google Shopping | `gl=au` | `gl=us` |
+| Amazon | amazon.com.au | amazon.com |
+| eBay | ebay.com.au | ebay.com |
+| Official / generic | au.store.bambulab.com (etc.) | us.store.bambulab.com |
+| Push / email alerts | In-app feed only | same |
 
-Wishlist state persists in `localStorage` (`pricekeep-state-v3-scrape-only`).
+Wishlist state persists in `localStorage` (`pricekeep-state-v4-au-regions`).
 
 ## Optional env
 
 Copy `.env.example` → `.env.local`. All keys are optional.
 
 ```bash
-SERPAPI_API_KEY=           # preferred for Google Shopping
+SERPAPI_API_KEY=
 EBAY_CLIENT_ID=
 EBAY_CLIENT_SECRET=
-AMAZON_ACCESS_KEY=         # reserved for PA-API later
+AMAZON_ACCESS_KEY=
 AMAZON_SECRET_KEY=
 AMAZON_PARTNER_TAG=
+SCHEDULER_SECRET=          # optional guard for /api/scheduler/run
+PRICE_CHECK_CRON=0 6 * * * # for npm run scheduler
 ```
 
 ## Stack
 
-Next.js (App Router) · TypeScript · Tailwind CSS · shadcn/ui · cheerio (light parsers) · localStorage
+Next.js (App Router) · TypeScript · Tailwind CSS · shadcn/ui · cheerio · `node:sqlite` · node-cron (dev scheduler) · localStorage
 
 ## Migration note
 
-App source lives on GitHub at [s3xyberries/Wishlist](https://github.com/s3xyberries/Wishlist) (`main`). Cloud Agent Cursor remotes may also track a feature branch for the same tree.
+App source lives on GitHub at [s3xyberries/Wishlist](https://github.com/s3xyberries/Wishlist) (`main`).

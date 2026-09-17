@@ -2,6 +2,8 @@ import * as cheerio from "cheerio";
 import { searchAmazonAsCatalog } from "./amazon";
 import { fetchHtml, parseMoney, ScrapeError } from "./http";
 import { searchOfficialStores } from "./official";
+import type { RegionConfig } from "@/lib/region/config";
+import { getRegion } from "@/lib/region/config";
 import type { SearchResult } from "@/lib/types";
 
 export type SearchMode =
@@ -35,7 +37,11 @@ function serpKey(): string | undefined {
   );
 }
 
-function mapSerpResult(item: Record<string, unknown>, index: number): SearchResult | null {
+function mapSerpResult(
+  item: Record<string, unknown>,
+  index: number,
+  currency: string,
+): SearchResult | null {
   const title = String(item.title ?? "").trim();
   if (!title) return null;
   const price =
@@ -52,7 +58,7 @@ function mapSerpResult(item: Record<string, unknown>, index: number): SearchResu
       thumbnail ||
       "https://images.unsplash.com/photo-1472851294608-062f824d29cc?auto=format&fit=crop&w=400&h=400&q=80",
     priceSnippet: price,
-    currency: "USD",
+    currency,
     merchantHint: source,
     sourceHint: "shopping",
     rating: typeof item.rating === "number" ? item.rating : undefined,
@@ -65,15 +71,18 @@ function mapSerpResult(item: Record<string, unknown>, index: number): SearchResu
   };
 }
 
-async function searchViaSerpApi(query: string): Promise<SearchResult[]> {
+async function searchViaSerpApi(
+  query: string,
+  region: RegionConfig,
+): Promise<SearchResult[]> {
   const key = serpKey();
   if (!key) throw new ScrapeError("No SerpAPI key");
 
   const url = new URL("https://serpapi.com/search.json");
   url.searchParams.set("engine", "google_shopping");
   url.searchParams.set("q", query);
-  url.searchParams.set("hl", "en");
-  url.searchParams.set("gl", "us");
+  url.searchParams.set("hl", region.googleHl);
+  url.searchParams.set("gl", region.googleGl);
   url.searchParams.set("api_key", key);
 
   const res = await fetch(url.toString(), {
@@ -87,13 +96,16 @@ async function searchViaSerpApi(query: string): Promise<SearchResult[]> {
   };
   if (data.error) throw new ScrapeError(data.error);
   return (data.shopping_results ?? [])
-    .map((row, i) => mapSerpResult(row, i))
+    .map((row, i) => mapSerpResult(row, i, region.currency))
     .filter((r): r is SearchResult => r !== null)
     .slice(0, 12);
 }
 
-async function searchViaHtmlScrape(query: string): Promise<SearchResult[]> {
-  const url = `https://www.google.com/search?tbm=shop&hl=en&gl=us&q=${encodeURIComponent(query)}`;
+async function searchViaHtmlScrape(
+  query: string,
+  region: RegionConfig,
+): Promise<SearchResult[]> {
+  const url = `https://www.google.com/search?tbm=shop&hl=${encodeURIComponent(region.googleHl)}&gl=${encodeURIComponent(region.googleGl)}&q=${encodeURIComponent(query)}`;
   const { html } = await fetchHtml(url, { timeoutMs: 7_000, minIntervalMs: 3_000 });
 
   const lower = html.toLowerCase();
@@ -141,14 +153,14 @@ async function searchViaHtmlScrape(query: string): Promise<SearchResult[]> {
       "";
 
     results.push({
-      id: `ghtml-${index}-${Buffer.from(title).toString("base64url").slice(0, 12)}`,
+      id: `ghtml-${region.id}-${index}-${Buffer.from(title).toString("base64url").slice(0, 12)}`,
       title,
       imageUrl:
         img.startsWith("http")
           ? img
           : "https://images.unsplash.com/photo-1472851294608-062f824d29cc?auto=format&fit=crop&w=400&h=400&q=80",
       priceSnippet: price,
-      currency: "USD",
+      currency: region.currency,
       merchantHint: merchant.slice(0, 80) || "Google Shopping",
       sourceHint: "shopping",
     });
@@ -160,8 +172,11 @@ async function searchViaHtmlScrape(query: string): Promise<SearchResult[]> {
   return results;
 }
 
-/** Live search only — no mock catalog. */
-export async function searchProducts(query: string): Promise<SearchResponse> {
+/** Live search only — no mock catalog. Region defaults to AU. */
+export async function searchProducts(
+  query: string,
+  region: RegionConfig = getRegion("au"),
+): Promise<SearchResponse> {
   const q = query.trim();
   if (!q) {
     return { results: [], mode: "empty", note: "Empty query." };
@@ -169,12 +184,12 @@ export async function searchProducts(query: string): Promise<SearchResponse> {
 
   if (hasSerpApiKey()) {
     try {
-      const results = await searchViaSerpApi(q);
+      const results = await searchViaSerpApi(q, region);
       if (results.length) {
         return {
           results,
           mode: "serpapi",
-          note: "Live Google Shopping via SerpAPI.",
+          note: `Live Google Shopping (${region.shortLabel}) via SerpAPI.`,
         };
       }
     } catch {
@@ -183,23 +198,23 @@ export async function searchProducts(query: string): Promise<SearchResponse> {
   }
 
   try {
-    const results = await searchViaHtmlScrape(q);
+    const results = await searchViaHtmlScrape(q, region);
     return {
       results,
       mode: "scrape",
-      note: "Live Google Shopping HTML scrape.",
+      note: `Live Google Shopping HTML scrape (${region.shortLabel}).`,
     };
   } catch {
     // fall through
   }
 
   try {
-    const results = await searchAmazonAsCatalog(q);
+    const results = await searchAmazonAsCatalog(q, region);
     if (results.length) {
       return {
         results,
         mode: "amazon-scrape",
-        note: "Google Shopping unavailable — Amazon search scrape.",
+        note: `Google Shopping unavailable — ${region.amazonMerchantLabel} search scrape.`,
       };
     }
   } catch {
@@ -207,12 +222,12 @@ export async function searchProducts(query: string): Promise<SearchResponse> {
   }
 
   try {
-    const results = await searchOfficialStores(q);
+    const results = await searchOfficialStores(q, region);
     if (results.length) {
       return {
         results,
         mode: "official-scrape",
-        note: "Marketplace search blocked — live official brand store scrape.",
+        note: `Marketplace search blocked — live ${region.shortLabel} official brand store scrape.`,
       };
     }
   } catch {
@@ -222,6 +237,6 @@ export async function searchProducts(query: string): Promise<SearchResponse> {
   return {
     results: [],
     mode: "empty",
-    note: "No live scrape results. Retailers blocked this request or returned no matches.",
+    note: `No live ${region.shortLabel} scrape results. Retailers blocked this request or returned no matches.`,
   };
 }

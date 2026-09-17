@@ -1,5 +1,7 @@
 import * as cheerio from "cheerio";
 import type { OfferCandidate } from "@/lib/adapters";
+import type { RegionConfig } from "@/lib/region/config";
+import { getRegion } from "@/lib/region/config";
 import type { SearchResult } from "@/lib/types";
 import { fetchHtml, parseMoney, ScrapeError, titleMatchScore } from "./http";
 
@@ -36,7 +38,11 @@ function isBlocked(html: string): boolean {
   );
 }
 
-function parseAmazonSearchHits(html: string, query: string): AmazonHit[] {
+function parseAmazonSearchHits(
+  html: string,
+  query: string,
+  amazonHost: string,
+): AmazonHit[] {
   const $ = cheerio.load(html);
   const hits: AmazonHit[] = [];
   const modelTokens = query
@@ -66,8 +72,8 @@ function parseAmazonSearchHits(html: string, query: string): AmazonHit[] {
     const productUrl = href
       ? href.startsWith("http")
         ? href.split("?")[0]
-        : `https://www.amazon.com${href.split("?")[0]}`
-      : `https://www.amazon.com/dp/${asin}`;
+        : `https://${amazonHost}${href.split("?")[0]}`
+      : `https://${amazonHost}/dp/${asin}`;
 
     const priceText =
       root.find("span.a-price span.a-offscreen").first().text() ||
@@ -99,7 +105,7 @@ function parseAmazonSearchHits(html: string, query: string): AmazonHit[] {
       hits.push({
         asin: asinMatch[1],
         title,
-        url: `https://www.amazon.com/dp/${asinMatch[1]}`,
+        url: `https://${amazonHost}/dp/${asinMatch[1]}`,
         price: null,
         score: titleMatchScore(query, title),
       });
@@ -111,32 +117,35 @@ function parseAmazonSearchHits(html: string, query: string): AmazonHit[] {
 
 export async function searchAmazonAsCatalog(
   query: string,
+  region: RegionConfig = getRegion("au"),
 ): Promise<SearchResult[]> {
   const q = query.trim();
   if (!q) return [];
-  const url = `https://www.amazon.com/s?k=${encodeURIComponent(q)}`;
+  const url = `https://${region.amazonHost}/s?k=${encodeURIComponent(q)}`;
   const { html } = await fetchHtml(url, { timeoutMs: 10_000, minIntervalMs: 2_500 });
   if (isBlocked(html)) throw new ScrapeError("Amazon search blocked");
 
-  const hits = parseAmazonSearchHits(html, q).filter(
-    (h) => h.score >= 8 && h.price != null && h.price >= 80,
+  const minPrice = region.id === "au" ? 50 : 80;
+  const hits = parseAmazonSearchHits(html, q, region.amazonHost).filter(
+    (h) => h.score >= 8 && h.price != null && h.price >= minPrice,
   );
   return hits.slice(0, 10).map((h, index) => ({
-    id: `amz-${h.asin}-${index}`,
+    id: `amz-${region.id}-${h.asin}-${index}`,
     title: h.title,
     brand: q.split(/\s+/)[0],
     imageUrl:
       h.imageUrl ||
       "https://images.unsplash.com/photo-1472851294608-062f824d29cc?auto=format&fit=crop&w=400&h=400&q=80",
     priceSnippet: h.price as number,
-    currency: "USD",
-    merchantHint: "Amazon.com",
+    currency: region.currency,
+    merchantHint: region.amazonMerchantLabel,
     sourceHint: "amazon" as const,
   }));
 }
 
 export async function discoverAmazonOffer(
   product: SearchResult,
+  region: RegionConfig = getRegion("au"),
 ): Promise<DiscoverResult> {
   try {
     const queries = [
@@ -147,13 +156,13 @@ export async function discoverAmazonOffer(
 
     let best: AmazonHit | null = null;
     for (const q of queries) {
-      const url = `https://www.amazon.com/s?k=${encodeURIComponent(q)}`;
+      const url = `https://${region.amazonHost}/s?k=${encodeURIComponent(q)}`;
       const { html } = await fetchHtml(url, {
         timeoutMs: 10_000,
         minIntervalMs: 2_500,
       });
       if (isBlocked(html)) continue;
-      const hits = parseAmazonSearchHits(html, product.title);
+      const hits = parseAmazonSearchHits(html, product.title, region.amazonHost);
       const candidate = hits.find((h) => h.price != null && h.price > 0) ?? null;
       if (candidate && (!best || candidate.score > best.score)) {
         best = candidate;
@@ -165,7 +174,7 @@ export async function discoverAmazonOffer(
       return {
         candidate: null,
         mode: "none",
-        note: "Amazon: no live listing with a parseable price.",
+        note: `${region.amazonMerchantLabel}: no live listing with a parseable price.`,
       };
     }
 
@@ -174,19 +183,19 @@ export async function discoverAmazonOffer(
         sourceId: "amazon",
         title: best.title,
         url: best.url,
-        merchant: "Amazon.com",
-        currency: product.currency || "USD",
+        merchant: region.amazonMerchantLabel,
+        currency: product.currency || region.currency,
         price: best.price,
         suspect: best.score < 18,
       },
       mode: "scrape",
-      note: `Amazon scrape hit (score ${best.score}).`,
+      note: `${region.amazonMerchantLabel} scrape hit (score ${best.score}).`,
     };
   } catch {
     return {
       candidate: null,
       mode: "none",
-      note: "Amazon scrape failed or blocked.",
+      note: `${region.amazonMerchantLabel} scrape failed or blocked.`,
     };
   }
 }

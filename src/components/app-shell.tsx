@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { Bell, Heart, Library, Search } from "lucide-react";
+import { RegionSwitcher } from "@/components/region-switcher";
 import { useWishlistStore } from "@/lib/store";
 import { cn } from "@/lib/utils";
 
@@ -44,35 +45,38 @@ export function AppShell({ children }: { children: React.ReactNode }) {
               wishlist · prices · alerts
             </span>
           </Link>
-          <nav className="flex items-center gap-1">
-            {nav.map((item) => {
-              const active =
-                item.href === "/"
-                  ? pathname === "/"
-                  : pathname.startsWith(item.href);
-              const Icon = item.icon;
-              return (
-                <Link
-                  key={item.href}
-                  href={item.href}
-                  className={cn(
-                    "relative inline-flex items-center gap-1.5 rounded-md px-2.5 py-1.5 text-sm transition-colors",
-                    active
-                      ? "bg-teal-800/10 text-teal-900"
-                      : "text-muted-foreground hover:bg-muted hover:text-foreground",
-                  )}
-                >
-                  <Icon className="size-4" />
-                  <span className="hidden sm:inline">{item.label}</span>
-                  {item.href === "/notifications" && unreadCount > 0 ? (
-                    <span className="absolute -right-0.5 -top-0.5 flex size-4 items-center justify-center rounded-full bg-teal-700 text-[10px] font-medium text-white">
-                      {unreadCount > 9 ? "9+" : unreadCount}
-                    </span>
-                  ) : null}
-                </Link>
-              );
-            })}
-          </nav>
+          <div className="flex items-center gap-2 sm:gap-3">
+            <RegionSwitcher />
+            <nav className="flex items-center gap-1">
+              {nav.map((item) => {
+                const active =
+                  item.href === "/"
+                    ? pathname === "/"
+                    : pathname.startsWith(item.href);
+                const Icon = item.icon;
+                return (
+                  <Link
+                    key={item.href}
+                    href={item.href}
+                    className={cn(
+                      "relative inline-flex items-center gap-1.5 rounded-md px-2.5 py-1.5 text-sm transition-colors",
+                      active
+                        ? "bg-teal-800/10 text-teal-900"
+                        : "text-muted-foreground hover:bg-muted hover:text-foreground",
+                    )}
+                  >
+                    <Icon className="size-4" />
+                    <span className="hidden sm:inline">{item.label}</span>
+                    {item.href === "/notifications" && unreadCount > 0 ? (
+                      <span className="absolute -right-0.5 -top-0.5 flex size-4 items-center justify-center rounded-full bg-teal-700 text-[10px] font-medium text-white">
+                        {unreadCount > 9 ? "9+" : unreadCount}
+                      </span>
+                    ) : null}
+                  </Link>
+                );
+              })}
+            </nav>
+          </div>
         </div>
       </header>
 
@@ -81,8 +85,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
       </main>
 
       <footer className="border-t border-border/60 py-4 text-center text-xs text-muted-foreground">
-        Shared catalog · scrape only when stale · user-triggered search &amp;
-        price checks
+        AU-first · shared SQLite catalog · scrape when stale · daily price check
       </footer>
     </div>
   );
