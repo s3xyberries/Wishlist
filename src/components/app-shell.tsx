@@ -2,12 +2,13 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { Bell, Heart, Search } from "lucide-react";
+import { Bell, Heart, Library, Search } from "lucide-react";
 import { useWishlistStore } from "@/lib/store";
 import { cn } from "@/lib/utils";
 
 const nav = [
   { href: "/", label: "Search", icon: Search },
+  { href: "/catalog", label: "Catalog", icon: Library },
   { href: "/wishlist", label: "Wishlist", icon: Heart },
   { href: "/notifications", label: "Alerts", icon: Bell },
 ];
@@ -80,8 +81,8 @@ export function AppShell({ children }: { children: React.ReactNode }) {
       </main>
 
       <footer className="border-t border-border/60 py-4 text-center text-xs text-muted-foreground">
-        Live scrape only · no mock catalog · user-triggered search &amp; price
-        checks
+        Shared catalog · scrape only when stale · user-triggered search &amp;
+        price checks
       </footer>
     </div>
   );

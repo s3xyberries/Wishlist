@@ -24,6 +24,9 @@
 .DS_Store
 *.pem
 
+# shared scrape catalog (server-side durable store)
+.data/
+
 # debug
 npm-debug.log*
 yarn-debug.log*

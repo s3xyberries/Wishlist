@@ -22,7 +22,8 @@ npm run lint
 
 ## What works now
 
-- Product search via `/api/search`: SerpAPI (if key) → Google Shopping HTML scrape → Amazon search scrape → mapped official brand PDPs (no mock catalog)
+- Product search via `/api/search`: **shared catalog first** (6h TTL) → SerpAPI → Google Shopping HTML → Amazon search → mapped official brand PDPs. `?refresh=1` forces a re-scrape.
+- Shared catalog browse at `/catalog` and `/api/catalog` (server file store under `.data/`)
 - Confirm / intercept step before adding to the wishlist
 - On track: `/api/discover` scrapes Amazon + eBay (or eBay Browse API) and mapped official PDPs — live offers only
 - Wishlist with notify toggle and remove
@@ -31,9 +32,13 @@ npm run lint
 - In-app notifications feed (localStorage)
 - PWA manifest + basic service worker shell
 
+## Shared catalog
+
+Successful search scrapes are written to `.data/shared-catalog.json` (gitignored). Later searches with the same (or token-matching) query reuse those rows while fresh — UI badges show **From catalog** vs **Fresh scrape**. Force refresh updates the catalog. This is shared across users on the same server instance, not mock data.
+
 ## Scrape policy (important)
 
-Live HTML fetches are **user-initiated only** (search, track/discover, manual price check). There is **no cron / bulk scrape** and **no mock/stub fallback data**. Requests use a polite User-Agent, short timeouts, per-host rate limits, and a short in-memory cache. Retailer ToS may still disallow scraping — prefer official APIs when you have keys.
+Live HTML fetches are **user-initiated only** (search, track/discover, manual price check). There is **no cron / bulk scrape** and **no mock/stub fallback data**. Shared catalog reuse is the primary way we avoid repeat scrapes. Requests use a polite User-Agent, short timeouts, per-host rate limits, and a short in-memory cache. Retailer ToS may still disallow scraping — prefer official APIs when you have keys.
 
 ## Live sources
 

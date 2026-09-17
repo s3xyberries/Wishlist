@@ -1,9 +1,10 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { useEffect, useState, useTransition } from "react";
 import Image from "next/image";
-import { useRouter } from "next/navigation";
-import { Loader2, Search, ShoppingBag } from "lucide-react";
+import Link from "next/link";
+import { useRouter, useSearchParams } from "next/navigation";
+import { Loader2, RefreshCw, Search, ShoppingBag } from "lucide-react";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -22,21 +23,32 @@ import type { SearchResult } from "@/lib/types";
 
 type Status = "idle" | "loading" | "empty" | "error" | "ready";
 
+type CatalogSearchResult = SearchResult & {
+  fromCatalog?: boolean;
+  lastScrapedAt?: string;
+};
+
 export function SearchExperience() {
   const router = useRouter();
+  const searchParams = useSearchParams();
+  const initialQ = searchParams.get("q")?.trim() ?? "";
   const { trackProduct } = useWishlistStore();
-  const [query, setQuery] = useState("");
+  const [query, setQuery] = useState(initialQ);
   const [submitted, setSubmitted] = useState("");
-  const [results, setResults] = useState<SearchResult[]>([]);
+  const [results, setResults] = useState<CatalogSearchResult[]>([]);
   const [status, setStatus] = useState<Status>("idle");
   const [searchMode, setSearchMode] = useState<string>("idle");
+  const [searchOrigin, setSearchOrigin] = useState<"catalog" | "scrape" | null>(
+    null,
+  );
   const [searchNote, setSearchNote] = useState<string | null>(null);
+  const [stale, setStale] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
-  const [selected, setSelected] = useState<SearchResult | null>(null);
+  const [selected, setSelected] = useState<CatalogSearchResult | null>(null);
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [pending, startTransition] = useTransition();
 
-  async function runSearch(value: string) {
+  async function runSearch(value: string, forceRefresh = false) {
     const q = value.trim();
     setSubmitted(q);
     setErrorMessage(null);
@@ -44,21 +56,29 @@ export function SearchExperience() {
       setResults([]);
       setStatus("idle");
       setSearchMode("idle");
+      setSearchOrigin(null);
       setSearchNote(null);
+      setStale(false);
       return;
     }
     setStatus("loading");
     try {
-      const res = await fetch(`/api/search?q=${encodeURIComponent(q)}`);
+      const params = new URLSearchParams({ q });
+      if (forceRefresh) params.set("refresh", "1");
+      const res = await fetch(`/api/search?${params.toString()}`);
       if (!res.ok) throw new Error("Search request failed");
       const data = (await res.json()) as {
-        results: SearchResult[];
+        results: CatalogSearchResult[];
         mode: string;
         note?: string;
+        origin?: "catalog" | "scrape";
+        stale?: boolean;
       };
       setResults(data.results);
       setSearchMode(data.mode ?? "scrape");
+      setSearchOrigin(data.origin ?? (data.mode === "catalog" ? "catalog" : "scrape"));
       setSearchNote(data.note ?? null);
+      setStale(Boolean(data.stale));
       if (data.mode === "error" && data.results.length === 0) {
         setStatus("error");
         setErrorMessage(data.note ?? "Live search failed. Try again.");
@@ -68,11 +88,21 @@ export function SearchExperience() {
     } catch {
       setResults([]);
       setSearchMode("error");
+      setSearchOrigin(null);
       setSearchNote(null);
+      setStale(false);
       setStatus("error");
       setErrorMessage("Could not reach the scrape API. Try again in a moment.");
     }
   }
+
+  useEffect(() => {
+    if (!initialQ) return;
+    const id = window.setTimeout(() => {
+      void runSearch(initialQ);
+    }, 0);
+    return () => window.clearTimeout(id);
+  }, [initialQ]);
 
   function onSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -85,7 +115,7 @@ export function SearchExperience() {
     void runSearch(query);
   }
 
-  function openConfirm(item: SearchResult) {
+  function openConfirm(item: CatalogSearchResult) {
     setSelected(item);
     setConfirmOpen(true);
   }
@@ -99,6 +129,8 @@ export function SearchExperience() {
     });
   }
 
+  const fromCatalog = searchOrigin === "catalog";
+
   return (
     <div className="space-y-8">
       <section className="relative overflow-hidden rounded-2xl border border-teal-900/10 bg-gradient-to-br from-teal-50/90 via-background to-slate-100/80 px-5 py-8 sm:px-8 sm:py-12">
@@ -110,8 +142,9 @@ export function SearchExperience() {
             Find a product. Confirm it. Track the price.
           </h1>
           <p className="text-sm leading-relaxed text-muted-foreground sm:text-base">
-            Live scrape search only — confirm the right item, then discover
-            Amazon, eBay, and official store prices when the scrape succeeds.
+            Successful scrapes land in a shared catalog so the next search can
+            reuse them. Fresh scrapes only run when the catalog is empty or
+            stale — or when you force a refresh.
           </p>
           <form
             onSubmit={onSubmit}
@@ -147,21 +180,30 @@ export function SearchExperience() {
             </Button>
           </form>
           {searchNote && status !== "idle" ? (
-            <p className="text-xs text-muted-foreground">
-              {searchNote}
-              {searchMode === "scrape" ||
-              searchMode === "amazon-scrape" ||
-              searchMode === "official-scrape" ? (
-                <>
-                  {" "}
-                  Optional:{" "}
-                  <code className="rounded bg-muted px-1 py-0.5">
-                    SERPAPI_API_KEY
-                  </code>{" "}
-                  for Google Shopping API results.
-                </>
+            <div className="flex flex-wrap items-center gap-2">
+              {fromCatalog ? (
+                <Badge className="bg-teal-800 text-white hover:bg-teal-800">
+                  {stale ? "Stale catalog" : "From catalog"}
+                </Badge>
+              ) : (
+                <Badge variant="outline" className="border-teal-800/40 text-teal-900">
+                  Fresh scrape
+                </Badge>
+              )}
+              <p className="text-xs text-muted-foreground">{searchNote}</p>
+              {status === "ready" ? (
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  className="h-7 px-2 text-xs"
+                  onClick={() => void runSearch(submitted || query, true)}
+                >
+                  <RefreshCw className="size-3.5" />
+                  Force refresh
+                </Button>
               ) : null}
-            </p>
+            </div>
           ) : null}
         </div>
         <ShoppingBag
@@ -173,15 +215,18 @@ export function SearchExperience() {
       <section className="space-y-4" aria-live="polite">
         {status === "idle" ? (
           <p className="text-sm text-muted-foreground">
-            Results come from live shopping scrapes or SerpAPI — nothing is
-            seeded.
+            Catalog first, scrape second.{" "}
+            <Link href="/catalog" className="underline underline-offset-2">
+              Browse the shared catalog
+            </Link>
+            .
           </p>
         ) : null}
 
         {status === "loading" ? (
           <div className="flex items-center gap-2 text-sm text-muted-foreground">
             <Loader2 className="size-4 animate-spin" />
-            Scraping shopping results…
+            Checking shared catalog, then scraping if needed…
           </div>
         ) : null}
 
@@ -194,10 +239,10 @@ export function SearchExperience() {
 
         {status === "empty" ? (
           <Alert>
-            <AlertTitle>No live matches for “{submitted}”</AlertTitle>
+            <AlertTitle>No matches for “{submitted}”</AlertTitle>
             <AlertDescription>
-              The scrape returned nothing. Try a clearer brand or model name, or
-              retry in a moment.
+              Nothing in the shared catalog and the live scrape returned empty.
+              Try a clearer brand or model name.
             </AlertDescription>
           </Alert>
         ) : null}
@@ -225,6 +270,21 @@ export function SearchExperience() {
                       {item.brand ? (
                         <Badge variant="secondary">{item.brand}</Badge>
                       ) : null}
+                      {item.fromCatalog || fromCatalog ? (
+                        <Badge
+                          variant="outline"
+                          className="border-teal-700/30 text-teal-900"
+                        >
+                          Catalog
+                        </Badge>
+                      ) : (
+                        <Badge
+                          variant="outline"
+                          className="border-amber-700/30 text-amber-950"
+                        >
+                          Just scraped
+                        </Badge>
+                      )}
                       <span className="text-xs text-muted-foreground">
                         {item.merchantHint}
                       </span>
@@ -249,6 +309,19 @@ export function SearchExperience() {
             ))}
           </ul>
         ) : null}
+
+        {status === "ready" && searchMode ? (
+          <p className="text-xs text-muted-foreground">
+            Mode: <code className="rounded bg-muted px-1 py-0.5">{searchMode}</code>
+            {searchOrigin ? (
+              <>
+                {" "}
+                · origin:{" "}
+                <code className="rounded bg-muted px-1 py-0.5">{searchOrigin}</code>
+              </>
+            ) : null}
+          </p>
+        ) : null}
       </section>
 
       <Dialog
@@ -260,7 +333,7 @@ export function SearchExperience() {
             <DialogTitle>Confirm this product?</DialogTitle>
             <DialogDescription>
               Intercept step: make sure this is the exact item you want before we
-              scrape seller pages and start a price history.
+              discover seller pages and start a price history.
             </DialogDescription>
           </DialogHeader>
           {selected ? (
