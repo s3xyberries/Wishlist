@@ -12,6 +12,17 @@ Canonical GitHub repo: **https://github.com/s3xyberries/Wishlist**
 
 ## Run locally
 
+### Windows (double-click)
+
+1. Install [Node.js 20+](https://nodejs.org) (22+ recommended).
+2. Double-click **`run.bat`** in the project folder (or right-click **`run.ps1`** → Run with PowerShell).
+3. The first launch runs `npm install` (if needed) and `npm run build`, then starts the app and opens [http://127.0.0.1:43127](http://127.0.0.1:43127).
+4. Leave the console window open while you use Pricekeep. Close it to stop the server. On failure the window stays open so you can read the error (`pause` / Enter).
+
+macOS/Linux: `chmod +x run.sh && ./run.sh` (same install → build → start flow).
+
+### From a terminal
+
 ```bash
 git pull
 npm install
@@ -23,7 +34,7 @@ Open [http://127.0.0.1:43127](http://127.0.0.1:43127).
 `npm run dev` uses **webpack** and allows `127.0.0.1` via `allowedDevOrigins`. Prefer:
 
 ```bash
-npm run build && npm start   # production mode on the same port (most reliable)
+npm run build && npm start   # production mode on the same port (most reliable; what run.bat uses)
 npm run lint
 npm run price-check:daily    # one-shot recheck of tracked offers
 npm run scheduler            # local daily cron (06:00 + boot run)
