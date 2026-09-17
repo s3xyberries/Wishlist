@@ -20,6 +20,10 @@ function Test-ProductionBuild {
   return (Test-Path -LiteralPath (Join-Path $PSScriptRoot ".next\BUILD_ID"))
 }
 
+function Test-BetterSqlite3 {
+  return (Test-Path -LiteralPath (Join-Path $PSScriptRoot "node_modules\better-sqlite3\package.json"))
+}
+
 if (-not (Get-Command node -ErrorAction SilentlyContinue)) {
   Wait-ForKey "Node.js was not found on PATH. Install Node.js 20+ from https://nodejs.org then try again."
   exit 1
@@ -45,19 +49,30 @@ if (Test-Path -LiteralPath $strayLock) {
   Write-Host ""
 }
 
-if (-not (Test-Path -LiteralPath (Join-Path $PSScriptRoot "node_modules"))) {
+$needInstall = -not (Test-Path -LiteralPath (Join-Path $PSScriptRoot "node_modules")) -or -not (Test-BetterSqlite3)
+if ($needInstall) {
   Write-Host ""
-  Write-Host "node_modules missing — running npm install..."
-  npm install
-  if ($LASTEXITCODE -ne 0) {
-    Wait-ForKey "npm install failed. If better-sqlite3 failed to build, install Visual Studio Build Tools (Desktop C++ workload) and try again."
-    exit 1
-  }
+  Write-Host "Installing dependencies (npm install) — required for better-sqlite3 on Windows..."
+} else {
+  Write-Host ""
+  Write-Host "Ensuring dependencies are installed (npm install)..."
+}
+
+npm install
+if ($LASTEXITCODE -ne 0) {
+  Wait-ForKey "npm install failed. better-sqlite3 needs a native build. Install Visual Studio Build Tools (Desktop C++ workload) then try again."
+  exit 1
+}
+
+if (-not (Test-BetterSqlite3)) {
+  Wait-ForKey "better-sqlite3 is still missing after npm install. Delete node_modules, install VS Build Tools (C++), then try again."
+  exit 1
 }
 
 if (-not (Test-ProductionBuild)) {
   Write-Host ""
   Write-Host "Production build missing or incomplete — running npm run build..."
+  Write-Host "(uses webpack so better-sqlite3 stays external; do not use Turbopack here)"
   $nextDir = Join-Path $PSScriptRoot ".next"
   if (Test-Path -LiteralPath $nextDir) {
     Write-Host "Removing incomplete .next folder..."
@@ -65,7 +80,7 @@ if (-not (Test-ProductionBuild)) {
   }
   npm run build
   if ($LASTEXITCODE -ne 0) {
-    Wait-ForKey "Build FAILED. The app was not started. Scroll up for the TypeScript / Next.js error."
+    Wait-ForKey "Build FAILED. If you see `"Can't resolve 'better-sqlite3'`", run npm install, delete .next, and try again. VS Build Tools may be required."
     exit 1
   }
 }

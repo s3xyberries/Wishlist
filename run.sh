@@ -26,15 +26,19 @@ if [[ ! -f package.json ]]; then
   exit 1
 fi
 
-if [[ ! -d node_modules ]]; then
-  echo
-  echo "node_modules missing — running npm install..."
-  npm install
+echo
+echo "Ensuring dependencies are installed (npm install)..."
+npm install
+
+if [[ ! -f node_modules/better-sqlite3/package.json ]]; then
+  echo "better-sqlite3 is missing after npm install. Delete node_modules and retry."
+  exit 1
 fi
 
 if [[ ! -f .next/BUILD_ID ]]; then
   echo
   echo "Production build missing or incomplete — running npm run build..."
+  echo "(uses webpack so better-sqlite3 stays external)"
   rm -rf .next
   npm run build
 fi

@@ -51,19 +51,37 @@ if exist "%USERPROFILE%\package-lock.json" (
   echo.
 )
 
-if not exist "node_modules\" (
+rem Always install/repair deps before build so better-sqlite3 is present on Windows.
+set "NEED_INSTALL=0"
+if not exist "node_modules\" set "NEED_INSTALL=1"
+if not exist "node_modules\better-sqlite3\package.json" set "NEED_INSTALL=1"
+
+if "%NEED_INSTALL%"=="1" (
   echo.
-  echo node_modules missing — running npm install...
-  call npm.cmd install
-  if errorlevel 1 (
-    echo.
-    echo npm install failed.
-    echo If better-sqlite3 failed to build, install Visual Studio Build Tools
-    echo ^(Desktop C++ workload^) and double-click run.bat again.
-    echo.
-    pause
-    exit /b 1
-  )
+  echo Installing dependencies ^(npm install^) — required for better-sqlite3 on Windows...
+) else (
+  echo.
+  echo Ensuring dependencies are installed ^(npm install^)...
+)
+call npm.cmd install
+if errorlevel 1 (
+  echo.
+  echo npm install failed.
+  echo better-sqlite3 needs a native build. Install Visual Studio Build Tools
+  echo ^(Desktop C++ workload^) from https://visualstudio.microsoft.com/visual-cpp-build-tools/
+  echo then double-click run.bat again.
+  echo.
+  pause
+  exit /b 1
+)
+
+if not exist "node_modules\better-sqlite3\package.json" (
+  echo.
+  echo better-sqlite3 is still missing after npm install.
+  echo Delete node_modules, install VS Build Tools ^(C++^), then run.bat again.
+  echo.
+  pause
+  exit /b 1
 )
 
 rem A bare ".next" folder is not enough — production start needs BUILD_ID.
@@ -73,6 +91,7 @@ if not exist ".next\BUILD_ID" set "NEED_BUILD=1"
 if "%NEED_BUILD%"=="1" (
   echo.
   echo Production build missing or incomplete — running npm run build...
+  echo ^(uses webpack so better-sqlite3 stays external; do not use Turbopack here^)
   if exist ".next\" (
     echo Removing incomplete .next folder...
     rmdir /s /q ".next" 2>nul
@@ -81,7 +100,8 @@ if "%NEED_BUILD%"=="1" (
   if errorlevel 1 (
     echo.
     echo Build FAILED. The app was not started.
-    echo Scroll up for the TypeScript / Next.js error.
+    echo If you see "Can't resolve 'better-sqlite3'", run: npm install
+    echo then delete .next and try run.bat again. VS Build Tools may be required.
     echo.
     pause
     exit /b 1

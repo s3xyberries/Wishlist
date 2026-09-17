@@ -8,7 +8,7 @@ Canonical GitHub repo: **https://github.com/s3xyberries/Wishlist**
 
 - **Node.js >= 20** (22+ recommended). `engines.node` is `>=20`.
 - Shared catalog uses **`better-sqlite3`** (portable native driver). We do **not** use Node’s built-in `node:sqlite` — that module is missing on many Windows builds even on Node 22.
-- On Windows, run `npm install` from a normal terminal so the `better-sqlite3` prebuild (or compile) succeeds. If install fails, install [Visual Studio Build Tools](https://visualstudio.microsoft.com/visual-cpp-build-tools/) (Desktop C++ workload) and retry `npm install`.
+- **Windows + better-sqlite3:** `npm install` must succeed so the native addon is present (prebuild or compile). If install/build fails, install [Visual Studio Build Tools](https://visualstudio.microsoft.com/visual-cpp-build-tools/) (Desktop C++ workload) and retry `npm install`. Production builds use **`next build --webpack`** (not Turbopack) so Next does not try to bundle the native module.
 
 ## Run locally
 
@@ -16,9 +16,9 @@ Canonical GitHub repo: **https://github.com/s3xyberries/Wishlist**
 
 1. Install [Node.js 20+](https://nodejs.org) (22+ recommended).
 2. Double-click **`run.bat`** in the project folder (or right-click **`run.ps1`** → Run with PowerShell). Paths with spaces (e.g. `Desktop\Price Checker\Wishlist`) are fine — the launcher `cd`s into its own folder.
-3. First launch runs `npm install` (if needed) and **`npm run build`**, and only starts after `.next\BUILD_ID` exists. Then it opens [http://127.0.0.1:43127](http://127.0.0.1:43127).
+3. Each launch runs **`npm install`**, then **`npm run build`** when `.next\BUILD_ID` is missing, and only starts after the build succeeds. Then it opens [http://127.0.0.1:43127](http://127.0.0.1:43127).
 4. Leave the console window open while you use Pricekeep. Close it to stop the server. On failure the window stays open so you can read the error (`pause` / Enter).
-5. If you see **“Could not find a production build”**, delete the `.next` folder in the project and double-click `run.bat` again.
+5. If you see **“Could not find a production build”** or **“Can't resolve 'better-sqlite3'”**, delete `.next` (and `node_modules` if the module is missing), ensure VS Build Tools are installed, then double-click `run.bat` again. Do **not** run `next build` with Turbopack on Windows for this app.
 6. If Next warns that it ignored `package-lock.json` because of a file under `C:\Users\<you>\`, delete that **stray** `C:\Users\<you>\package-lock.json` (not the one inside this repo). `outputFileTracingRoot` in `next.config.ts` also pins the app to this project folder.
 
 macOS/Linux: `chmod +x run.sh && ./run.sh` (same install → build → start flow).
@@ -36,7 +36,7 @@ Open [http://127.0.0.1:43127](http://127.0.0.1:43127).
 `npm run dev` uses **webpack** and allows `127.0.0.1` via `allowedDevOrigins`. Prefer:
 
 ```bash
-npm run build && npm start   # production mode on the same port (most reliable; what run.bat uses)
+npm run build && npm start   # webpack production build + start (what run.bat uses; avoids Turbopack/native issues)
 npm run lint
 npm run price-check:daily    # one-shot recheck of tracked offers
 npm run scheduler            # local daily cron (06:00 + boot run)
