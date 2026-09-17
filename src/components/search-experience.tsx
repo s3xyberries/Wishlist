@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState, useTransition } from "react";
+import { useState, useTransition } from "react";
 import Image from "next/image";
 import { useRouter } from "next/navigation";
 import { Loader2, Search, ShoppingBag } from "lucide-react";
@@ -17,7 +17,6 @@ import {
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { formatMoney } from "@/lib/format";
-import { searchMockCatalog } from "@/lib/mock-catalog";
 import { useWishlistStore } from "@/lib/store";
 import type { SearchResult } from "@/lib/types";
 
@@ -30,17 +29,12 @@ export function SearchExperience() {
   const [submitted, setSubmitted] = useState("");
   const [results, setResults] = useState<SearchResult[]>([]);
   const [status, setStatus] = useState<Status>("idle");
-  const [searchMode, setSearchMode] = useState<string>("mock");
+  const [searchMode, setSearchMode] = useState<string>("idle");
   const [searchNote, setSearchNote] = useState<string | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [selected, setSelected] = useState<SearchResult | null>(null);
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [pending, startTransition] = useTransition();
-
-  const usingMock = useMemo(
-    () => searchMode.includes("mock") || searchMode === "idle",
-    [searchMode],
-  );
 
   async function runSearch(value: string) {
     const q = value.trim();
@@ -49,6 +43,8 @@ export function SearchExperience() {
     if (!q) {
       setResults([]);
       setStatus("idle");
+      setSearchMode("idle");
+      setSearchNote(null);
       return;
     }
     setStatus("loading");
@@ -61,21 +57,20 @@ export function SearchExperience() {
         note?: string;
       };
       setResults(data.results);
-      setSearchMode(data.mode ?? "mock");
+      setSearchMode(data.mode ?? "scrape");
       setSearchNote(data.note ?? null);
+      if (data.mode === "error" && data.results.length === 0) {
+        setStatus("error");
+        setErrorMessage(data.note ?? "Live search failed. Try again.");
+        return;
+      }
       setStatus(data.results.length ? "ready" : "empty");
     } catch {
-      // Local fallback if route is unreachable
-      const local = searchMockCatalog(q);
-      setSearchMode("mock");
-      setSearchNote("Could not reach search API — local mock catalog.");
-      if (local.length) {
-        setResults(local);
-        setStatus("ready");
-      } else {
-        setStatus("error");
-        setErrorMessage("Could not reach search. Try again in a moment.");
-      }
+      setResults([]);
+      setSearchMode("error");
+      setSearchNote(null);
+      setStatus("error");
+      setErrorMessage("Could not reach the scrape API. Try again in a moment.");
     }
   }
 
@@ -115,9 +110,8 @@ export function SearchExperience() {
             Find a product. Confirm it. Track the price.
           </h1>
           <p className="text-sm leading-relaxed text-muted-foreground sm:text-base">
-            Search a shopping-style catalog, lock the right item, then watch
-            Amazon, eBay, and generic URL matches — dismiss anything that looks
-            wrong.
+            Live scrape search only — confirm the right item, then discover
+            Amazon, eBay, and official store prices when the scrape succeeds.
           </p>
           <form
             onSubmit={onSubmit}
@@ -136,7 +130,7 @@ export function SearchExperience() {
                     void runSearch(query);
                   }
                 }}
-                placeholder="Try “sony headphones”, “kindle”, or “ipad air”"
+                placeholder="Try “bambu lab h2s”, “sony headphones”, “kindle”"
                 className="h-11 pl-9"
                 aria-label="Search products"
                 name="q"
@@ -152,14 +146,20 @@ export function SearchExperience() {
               Search
             </Button>
           </form>
-          {usingMock ? (
+          {searchNote && status !== "idle" ? (
             <p className="text-xs text-muted-foreground">
-              {searchNote ??
-                "Using mock Google Shopping results when live scrape/API is unavailable."}{" "}
-              Optional: <code className="rounded bg-muted px-1 py-0.5">SERPAPI_API_KEY</code>.
+              {searchNote}
+              {searchMode === "scrape" || searchMode === "amazon-scrape" ? (
+                <>
+                  {" "}
+                  Optional:{" "}
+                  <code className="rounded bg-muted px-1 py-0.5">
+                    SERPAPI_API_KEY
+                  </code>{" "}
+                  for Google Shopping API results.
+                </>
+              ) : null}
             </p>
-          ) : searchNote ? (
-            <p className="text-xs text-muted-foreground">{searchNote}</p>
           ) : null}
         </div>
         <ShoppingBag
@@ -171,15 +171,15 @@ export function SearchExperience() {
       <section className="space-y-4" aria-live="polite">
         {status === "idle" ? (
           <p className="text-sm text-muted-foreground">
-            Suggestions: sony, kindle, dyson, nike, ipad, lego, instant pot,
-            garmin.
+            Results come from live shopping scrapes or SerpAPI — nothing is
+            seeded.
           </p>
         ) : null}
 
         {status === "loading" ? (
           <div className="flex items-center gap-2 text-sm text-muted-foreground">
             <Loader2 className="size-4 animate-spin" />
-            Searching shopping results…
+            Scraping shopping results…
           </div>
         ) : null}
 
@@ -192,10 +192,10 @@ export function SearchExperience() {
 
         {status === "empty" ? (
           <Alert>
-            <AlertTitle>No matches for “{submitted}”</AlertTitle>
+            <AlertTitle>No live matches for “{submitted}”</AlertTitle>
             <AlertDescription>
-              Try a shorter brand or product name. Mock catalog is intentionally
-              small.
+              The scrape returned nothing. Try a clearer brand or model name, or
+              retry in a moment.
             </AlertDescription>
           </Alert>
         ) : null}
@@ -258,7 +258,7 @@ export function SearchExperience() {
             <DialogTitle>Confirm this product?</DialogTitle>
             <DialogDescription>
               Intercept step: make sure this is the exact item you want before we
-              discover seller pages and start a price history.
+              scrape seller pages and start a price history.
             </DialogDescription>
           </DialogHeader>
           {selected ? (

@@ -1,16 +1,9 @@
 import * as cheerio from "cheerio";
-import { searchMockCatalog } from "@/lib/mock-catalog";
-import type { SearchResult } from "@/lib/types";
 import { searchAmazonAsCatalog } from "./amazon";
 import { fetchHtml, parseMoney, ScrapeError } from "./http";
+import type { SearchResult } from "@/lib/types";
 
-export type SearchMode =
-  | "serpapi"
-  | "scrape"
-  | "amazon-scrape"
-  | "mock"
-  | "scrape-fallback-mock"
-  | "serpapi-fallback-mock";
+export type SearchMode = "serpapi" | "scrape" | "amazon-scrape" | "empty" | "error";
 
 export interface SearchResponse {
   results: SearchResult[];
@@ -41,6 +34,7 @@ function mapSerpResult(item: Record<string, unknown>, index: number): SearchResu
   const price =
     parseMoney(String(item.extracted_price ?? item.price ?? "")) ??
     (typeof item.extracted_price === "number" ? item.extracted_price : null);
+  if (price == null || price <= 0) return null;
   const thumbnail = String(item.thumbnail ?? item.image ?? "");
   const source = String(item.source ?? item.merchant ?? "Google Shopping");
   return {
@@ -50,7 +44,7 @@ function mapSerpResult(item: Record<string, unknown>, index: number): SearchResu
     imageUrl:
       thumbnail ||
       "https://images.unsplash.com/photo-1472851294608-062f824d29cc?auto=format&fit=crop&w=400&h=400&q=80",
-    priceSnippet: price ?? 0,
+    priceSnippet: price,
     currency: "USD",
     merchantHint: source,
     sourceHint: "shopping",
@@ -79,16 +73,13 @@ async function searchViaSerpApi(query: string): Promise<SearchResult[]> {
     headers: { Accept: "application/json" },
     signal: AbortSignal.timeout(10_000),
   });
-  if (!res.ok) {
-    throw new ScrapeError(`SerpAPI HTTP ${res.status}`, res.status);
-  }
+  if (!res.ok) throw new ScrapeError(`SerpAPI HTTP ${res.status}`, res.status);
   const data = (await res.json()) as {
     shopping_results?: Record<string, unknown>[];
     error?: string;
   };
   if (data.error) throw new ScrapeError(data.error);
-  const rows = data.shopping_results ?? [];
-  return rows
+  return (data.shopping_results ?? [])
     .map((row, i) => mapSerpResult(row, i))
     .filter((r): r is SearchResult => r !== null)
     .slice(0, 12);
@@ -132,7 +123,8 @@ async function searchViaHtmlScrape(query: string): Promise<SearchResult[]> {
       root.find("span.a8Pemb, span[aria-label*='$'], span.HRLxBb, b").first().text() ||
       root.text().match(/\$[\d,.]+/)?.[0] ||
       "";
-    const price = parseMoney(priceText) ?? 0;
+    const price = parseMoney(priceText);
+    if (price == null || price <= 0) return;
     const merchant =
       root.find("div.aULzUe, span.IuHnof, div.O8U6h").first().text().trim() ||
       "Google Shopping";
@@ -161,76 +153,55 @@ async function searchViaHtmlScrape(query: string): Promise<SearchResult[]> {
   return results;
 }
 
-function mergeUnique(...lists: SearchResult[][]): SearchResult[] {
-  const seen = new Set<string>();
-  const out: SearchResult[] = [];
-  for (const list of lists) {
-    for (const item of list) {
-      const key = item.title.toLowerCase().slice(0, 80);
-      if (seen.has(key)) continue;
-      seen.add(key);
-      out.push(item);
-    }
-  }
-  return out;
-}
-
+/** Live search only — no mock catalog. */
 export async function searchProducts(query: string): Promise<SearchResponse> {
   const q = query.trim();
   if (!q) {
-    return { results: [], mode: "mock", note: "Empty query." };
+    return { results: [], mode: "empty", note: "Empty query." };
   }
-
-  // Prefer curated mock matches first so known SKUs (e.g. Bambu H2S) surface
-  // even when marketplaces only return accessories.
-  const mock = searchMockCatalog(q);
 
   if (hasSerpApiKey()) {
     try {
       const results = await searchViaSerpApi(q);
       if (results.length) {
         return {
-          results: mergeUnique(mock, results),
+          results,
           mode: "serpapi",
           note: "Live Google Shopping via SerpAPI.",
         };
       }
     } catch {
-      // fall through
+      // try HTML / Amazon
     }
   }
 
   try {
     const results = await searchViaHtmlScrape(q);
     return {
-      results: mergeUnique(mock, results),
+      results,
       mode: "scrape",
-      note: "Best-effort Google Shopping HTML scrape (user-initiated).",
+      note: "Live Google Shopping HTML scrape.",
     };
   } catch {
-    // Google often blocks cloud IPs — fall through to Amazon marketplace search.
+    // fall through
   }
 
   try {
     const results = await searchAmazonAsCatalog(q);
-    if (results.length || mock.length) {
+    if (results.length) {
       return {
-        results: mergeUnique(mock, results),
-        mode: results.length ? "amazon-scrape" : "mock",
-        note: results.length
-          ? "Google Shopping unavailable — used Amazon search scrape (mock matches first)."
-          : "Live scrapes unavailable — mock catalog match.",
+        results,
+        mode: "amazon-scrape",
+        note: "Google Shopping unavailable — Amazon search scrape.",
       };
     }
   } catch {
-    // fall through to mock
+    // fall through
   }
 
   return {
-    results: mock,
-    mode: mock.length ? "mock" : "scrape-fallback-mock",
-    note: mock.length
-      ? "Live scrapes unavailable — mock catalog match."
-      : "Live scrape blocked and no mock match.",
+    results: [],
+    mode: "empty",
+    note: "No live scrape results. Retailers blocked this request or returned no matches.",
   };
 }

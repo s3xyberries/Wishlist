@@ -1,19 +1,19 @@
 import * as cheerio from "cheerio";
-import { amazonDiscover, type OfferCandidate } from "@/lib/adapters";
+import type { OfferCandidate } from "@/lib/adapters";
 import type { SearchResult } from "@/lib/types";
 import { fetchHtml, parseMoney, ScrapeError, titleMatchScore } from "./http";
 
 export interface DiscoverResult {
-  candidate: OfferCandidate;
-  mode: "scrape" | "stub";
+  candidate: OfferCandidate | null;
+  mode: "scrape" | "none";
   note: string;
 }
 
 export interface PriceFetchResult {
-  price: number;
+  price: number | null;
   currency: string;
   title?: string;
-  mode: "scrape" | "stub";
+  mode: "scrape" | "none";
   note: string;
 }
 
@@ -24,10 +24,6 @@ interface AmazonHit {
   price: number | null;
   imageUrl?: string;
   score: number;
-}
-
-function stubFromProduct(product: SearchResult): OfferCandidate {
-  return amazonDiscover(product);
 }
 
 function isBlocked(html: string): boolean {
@@ -61,7 +57,6 @@ function parseAmazonSearchHits(html: string, query: string): AmazonHit[] {
       "";
     if (!title) return;
 
-    // Hard require model tokens (e.g. H2S) so P2S cannot win an H2S query.
     const titleLower = title.toLowerCase();
     if (modelTokens.length && !modelTokens.every((t) => titleLower.includes(t))) {
       return;
@@ -90,7 +85,6 @@ function parseAmazonSearchHits(html: string, query: string): AmazonHit[] {
     });
   });
 
-  // Fallback: aria-label cards when classic result markup is sparse
   if (hits.length === 0) {
     $("a[aria-label]").each((_, el) => {
       const title = ($(el).attr("aria-label") ?? "").trim();
@@ -125,7 +119,7 @@ export async function searchAmazonAsCatalog(
   if (isBlocked(html)) throw new ScrapeError("Amazon search blocked");
 
   const hits = parseAmazonSearchHits(html, q).filter(
-    (h) => h.score >= 8 && (h.price == null || h.price >= 80),
+    (h) => h.score >= 8 && h.price != null && h.price >= 80,
   );
   return hits.slice(0, 10).map((h, index) => ({
     id: `amz-${h.asin}-${index}`,
@@ -134,21 +128,16 @@ export async function searchAmazonAsCatalog(
     imageUrl:
       h.imageUrl ||
       "https://images.unsplash.com/photo-1472851294608-062f824d29cc?auto=format&fit=crop&w=400&h=400&q=80",
-    priceSnippet: h.price ?? 0,
+    priceSnippet: h.price as number,
     currency: "USD",
     merchantHint: "Amazon.com",
     sourceHint: "amazon" as const,
   }));
 }
 
-/**
- * User-triggered Amazon search page parse — restrained, rate-limited via fetchHtml.
- * Picks the best title match (not merely the first sponsored/accessory row).
- */
 export async function discoverAmazonOffer(
   product: SearchResult,
 ): Promise<DiscoverResult> {
-  const stub = stubFromProduct(product);
   try {
     const queries = [
       product.title,
@@ -165,16 +154,19 @@ export async function discoverAmazonOffer(
       });
       if (isBlocked(html)) continue;
       const hits = parseAmazonSearchHits(html, product.title);
-      const candidate = hits[0];
+      const candidate = hits.find((h) => h.price != null && h.price > 0) ?? null;
       if (candidate && (!best || candidate.score > best.score)) {
         best = candidate;
       }
-      // Good enough exact-ish match
-      if (best && best.score >= 15) break;
+      if (best && best.score >= 15 && best.price != null) break;
     }
 
-    if (!best || best.score < 8) {
-      throw new ScrapeError("No strong Amazon title match");
+    if (!best || best.score < 8 || best.price == null) {
+      return {
+        candidate: null,
+        mode: "none",
+        note: "Amazon: no live listing with a parseable price.",
+      };
     }
 
     return {
@@ -184,24 +176,23 @@ export async function discoverAmazonOffer(
         url: best.url,
         merchant: "Amazon.com",
         currency: product.currency || "USD",
-        price: best.price ?? stub.price,
+        price: best.price,
         suspect: best.score < 18,
       },
       mode: "scrape",
-      note: `Parsed Amazon search hit (score ${best.score}).`,
+      note: `Amazon scrape hit (score ${best.score}).`,
     };
   } catch {
     return {
-      candidate: stub,
-      mode: "stub",
-      note: "Amazon scrape blocked/failed — stub adapter.",
+      candidate: null,
+      mode: "none",
+      note: "Amazon scrape failed or blocked.",
     };
   }
 }
 
 export async function fetchAmazonPrice(
   url: string,
-  fallbackPrice: number,
   currency = "USD",
 ): Promise<PriceFetchResult> {
   try {
@@ -230,10 +221,10 @@ export async function fetchAmazonPrice(
     };
   } catch {
     return {
-      price: fallbackPrice,
+      price: null,
       currency,
-      mode: "stub",
-      note: "Amazon price scrape failed — kept previous/stub price.",
+      mode: "none",
+      note: "Amazon price scrape failed.",
     };
   }
 }

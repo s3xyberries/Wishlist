@@ -50,7 +50,7 @@ export interface PricePoint {
   price: number;
   currency: string;
   capturedAt: string;
-  source: "poll" | "manual" | "seed";
+  source: "poll" | "manual";
 }
 
 export interface NotificationEvent {

@@ -1,19 +1,19 @@
 import * as cheerio from "cheerio";
-import { ebayDiscover, type OfferCandidate } from "@/lib/adapters";
+import type { OfferCandidate } from "@/lib/adapters";
 import type { SearchResult } from "@/lib/types";
 import { fetchHtml, parseMoney, ScrapeError } from "./http";
 
 export interface DiscoverResult {
-  candidate: OfferCandidate;
-  mode: "scrape" | "api" | "stub";
+  candidate: OfferCandidate | null;
+  mode: "scrape" | "api" | "none";
   note: string;
 }
 
 export interface PriceFetchResult {
-  price: number;
+  price: number | null;
   currency: string;
   title?: string;
-  mode: "scrape" | "api" | "stub";
+  mode: "scrape" | "api" | "none";
   note: string;
 }
 
@@ -73,7 +73,8 @@ async function discoverViaEbayApi(product: SearchResult): Promise<OfferCandidate
   };
   const item = data.itemSummaries?.[0];
   if (!item?.title || !item.itemWebUrl) throw new ScrapeError("No eBay API items");
-  const price = parseMoney(item.price?.value) ?? ebayDiscover(product).price;
+  const price = parseMoney(item.price?.value);
+  if (price == null) throw new ScrapeError("eBay API item missing price");
   return {
     sourceId: "ebay",
     title: item.title,
@@ -84,14 +85,9 @@ async function discoverViaEbayApi(product: SearchResult): Promise<OfferCandidate
   };
 }
 
-/**
- * User-triggered eBay search HTML parse. Prefer Browse API when credentials exist.
- */
 export async function discoverEbayOffer(
   product: SearchResult,
 ): Promise<DiscoverResult> {
-  const stub = ebayDiscover(product);
-
   if (hasEbayApi()) {
     try {
       const candidate = await discoverViaEbayApi(product);
@@ -101,7 +97,7 @@ export async function discoverEbayOffer(
         note: "eBay Browse API search hit.",
       };
     } catch {
-      // fall through to scrape / stub
+      // fall through to scrape
     }
   }
 
@@ -118,10 +114,12 @@ export async function discoverEbayOffer(
     }
 
     const $ = cheerio.load(html);
-    const first = $("li.s-item, li[data-viewport], .s-item").filter((_, el) => {
-      const t = $(el).find(".s-item__title, .s-item__title span").first().text();
-      return Boolean(t && !/shop on ebay/i.test(t));
-    }).first();
+    const first = $("li.s-item, li[data-viewport], .s-item")
+      .filter((_, el) => {
+        const t = $(el).find(".s-item__title, .s-item__title span").first().text();
+        return Boolean(t && !/shop on ebay/i.test(t));
+      })
+      .first();
 
     if (!first.length) throw new ScrapeError("No eBay search results");
 
@@ -129,11 +127,13 @@ export async function discoverEbayOffer(
       first.find(".s-item__title span[role='heading']").first().text().trim() ||
       first.find(".s-item__title").first().text().trim() ||
       product.title;
-    const href = first.find("a.s-item__link").attr("href") || stub.url;
+    const href = first.find("a.s-item__link").attr("href");
+    if (!href) throw new ScrapeError("eBay result missing URL");
     const priceText =
       first.find(".s-item__price").first().text() ||
       first.find("[class*='price']").first().text();
-    const price = parseMoney(priceText) ?? stub.price;
+    const price = parseMoney(priceText);
+    if (price == null) throw new ScrapeError("eBay result missing price");
 
     return {
       candidate: {
@@ -149,16 +149,15 @@ export async function discoverEbayOffer(
     };
   } catch {
     return {
-      candidate: stub,
-      mode: "stub",
-      note: "eBay scrape/API unavailable — stub adapter.",
+      candidate: null,
+      mode: "none",
+      note: "eBay scrape/API unavailable.",
     };
   }
 }
 
 export async function fetchEbayPrice(
   url: string,
-  fallbackPrice: number,
   currency = "USD",
 ): Promise<PriceFetchResult> {
   try {
@@ -188,10 +187,10 @@ export async function fetchEbayPrice(
     };
   } catch {
     return {
-      price: fallbackPrice,
+      price: null,
       currency,
-      mode: "stub",
-      note: "eBay price scrape failed — kept previous/stub price.",
+      mode: "none",
+      note: "eBay price scrape failed.",
     };
   }
 }

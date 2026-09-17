@@ -13,7 +13,7 @@ export default function NotificationsPage() {
           Alerts
         </h1>
         <p className="mt-1 text-sm text-muted-foreground">
-          In-app stub for price-change notifications. Push delivery comes later.
+          In-app feed for live price-change alerts. Push delivery comes later.
         </p>
       </div>
       <NotificationsView />

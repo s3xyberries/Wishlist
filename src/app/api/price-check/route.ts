@@ -9,13 +9,11 @@ export const dynamic = "force-dynamic";
 interface PriceCheckBody {
   sourceId: SourceId;
   url: string;
-  fallbackPrice: number;
   currency?: string;
 }
 
 /**
- * User-initiated single-offer price refresh.
- * Never scheduled — only when the client asks.
+ * User-initiated single-offer price refresh — live scrape/API only.
  */
 export async function POST(request: Request) {
   let body: PriceCheckBody;
@@ -25,23 +23,23 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "Invalid JSON body" }, { status: 400 });
   }
 
-  const { sourceId, url, fallbackPrice, currency = "USD" } = body;
-  if (!sourceId || !url || typeof fallbackPrice !== "number") {
+  const { sourceId, url, currency = "USD" } = body;
+  if (!sourceId || !url) {
     return NextResponse.json(
-      { error: "sourceId, url, and fallbackPrice required" },
+      { error: "sourceId and url required" },
       { status: 400 },
     );
   }
 
   if (sourceId === "amazon") {
-    const result = await fetchAmazonPrice(url, fallbackPrice, currency);
+    const result = await fetchAmazonPrice(url, currency);
     return NextResponse.json(result);
   }
   if (sourceId === "ebay") {
-    const result = await fetchEbayPrice(url, fallbackPrice, currency);
+    const result = await fetchEbayPrice(url, currency);
     return NextResponse.json(result);
   }
 
-  const result = await fetchOfficialOrGenericPrice(url, fallbackPrice, currency);
+  const result = await fetchOfficialOrGenericPrice(url, currency);
   return NextResponse.json(result);
 }

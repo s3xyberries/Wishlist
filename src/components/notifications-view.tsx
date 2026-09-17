@@ -37,7 +37,7 @@ export function NotificationsView() {
       <Alert>
         <AlertTitle>No alerts yet</AlertTitle>
         <AlertDescription>
-          Run a mock price check on a product, or add something from search.
+          Track a product from search, then run a live price check.
         </AlertDescription>
       </Alert>
     );
@@ -94,8 +94,8 @@ export function NotificationsView() {
         ))}
       </ul>
       <p className="text-xs text-muted-foreground">
-        Stub only — web push / email delivery is not wired. Alerts stay in this
-        in-app feed and localStorage.
+        In-app only — web push / email delivery is not wired. Alerts stay in
+        this feed and localStorage.
       </p>
     </div>
   );

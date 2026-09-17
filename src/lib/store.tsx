@@ -10,11 +10,7 @@ import {
   useState,
   type ReactNode,
 } from "react";
-import {
-  candidatesToOffers,
-  discoverOffers,
-  productFromResult,
-} from "./adapters";
+import { productFromResult } from "./adapters";
 import { uid } from "./format";
 import type {
   AppState,
@@ -25,7 +21,8 @@ import type {
   SearchResult,
 } from "./types";
 
-const STORAGE_KEY = "pricekeep-state-v1";
+/** Bump key to drop old seeded/mock localStorage payloads. */
+const STORAGE_KEY = "pricekeep-state-v3-scrape-only";
 
 const EMPTY_STATE: AppState = {
   products: [],
@@ -33,118 +30,6 @@ const EMPTY_STATE: AppState = {
   priceHistory: [],
   notifications: [],
 };
-
-/** Fixed anchor so seed data is deterministic (avoids SSR/client hydration mismatch). */
-const SEED_NOW = Date.UTC(2026, 8, 16, 12, 0, 0);
-
-function daysBeforeSeed(n: number) {
-  return new Date(SEED_NOW - n * 24 * 60 * 60 * 1000).toISOString();
-}
-
-function buildHistory(
-  offerId: string,
-  endPrice: number,
-  currency: string,
-): PricePoint[] {
-  const points: PricePoint[] = [];
-  let price = endPrice * 1.18;
-  let step = 0;
-  for (let i = 28; i >= 0; i -= 2) {
-    // Deterministic wobble instead of Math.random()
-    const factor = 0.985 + ((step % 5) * 0.004);
-    price = Math.round(price * factor * 100) / 100;
-    if (i === 0) price = endPrice;
-    points.push({
-      id: `pp-${offerId}-${i}`,
-      offerId,
-      price,
-      currency,
-      capturedAt: daysBeforeSeed(i),
-      source: "seed",
-    });
-    step += 1;
-  }
-  return points;
-}
-
-function createSeedState(): AppState {
-  const now = new Date(SEED_NOW).toISOString();
-  const product: Product = {
-    id: "prod-seed-sony",
-    title: "Sony WH-1000XM5 Wireless Noise Cancelling Headphones",
-    brand: "Sony",
-    imageUrl:
-      "https://images.unsplash.com/photo-1618366712010-f4ae9c647dcb?auto=format&fit=crop&w=400&h=400&q=80",
-    queryText: "sony wh-1000xm5",
-    createdAt: daysBeforeSeed(12),
-    notifyEnabled: true,
-  };
-
-  const offers: Offer[] = [
-    {
-      id: "offer-sony-amazon",
-      productId: product.id,
-      sourceId: "amazon",
-      title: product.title,
-      url: "https://www.amazon.com/s?k=Sony+WH-1000XM5",
-      merchant: "Amazon.com",
-      currency: "USD",
-      status: "active",
-      lastPrice: 328,
-      lastCheckedAt: daysBeforeSeed(0),
-    },
-    {
-      id: "offer-sony-ebay",
-      productId: product.id,
-      sourceId: "ebay",
-      title: `${product.title} — Refurbished`,
-      url: "https://www.ebay.com/sch/i.html?_nkw=Sony+WH-1000XM5",
-      merchant: "eBay",
-      currency: "USD",
-      status: "active",
-      lastPrice: 289.5,
-      lastCheckedAt: daysBeforeSeed(1),
-    },
-    {
-      id: "offer-sony-generic",
-      productId: product.id,
-      sourceId: "generic",
-      title: "Wireless ANC Over-Ear Headphones (generic listing)",
-      url: "https://example-retailer.example/p/sony-wh-1000xm5",
-      merchant: "Example Retailer",
-      currency: "USD",
-      status: "suspected_mismatch",
-      lastPrice: 359,
-      lastCheckedAt: daysBeforeSeed(2),
-    },
-  ];
-
-  const priceHistory = offers.flatMap((o) =>
-    buildHistory(o.id, o.lastPrice, o.currency),
-  );
-
-  const notifications: NotificationEvent[] = [
-    {
-      id: "notif-welcome",
-      kind: "welcome",
-      message:
-        "Welcome to Pricekeep. Search a product, confirm it, and we will track mock Amazon + eBay sources.",
-      createdAt: now,
-      read: false,
-    },
-    {
-      id: "notif-drop",
-      productId: product.id,
-      offerId: "offer-sony-amazon",
-      kind: "price_drop",
-      message: "Amazon price for Sony WH-1000XM5 dropped $20 to $328.00.",
-      createdAt: daysBeforeSeed(1),
-      read: false,
-    },
-  ];
-
-  return { products: [product], offers, priceHistory, notifications };
-}
 
 function isAppState(value: unknown): value is AppState {
   if (!value || typeof value !== "object") return false;
@@ -168,7 +53,7 @@ interface WishlistStoreValue {
   setNotifyEnabled: (productId: string, enabled: boolean) => void;
   markNotificationRead: (id: string) => void;
   markAllNotificationsRead: () => void;
-  runMockPriceCheck: (productId: string) => void;
+  runPriceCheck: (productId: string) => void;
   getProduct: (id: string) => Product | undefined;
   getOffersForProduct: (productId: string, includeDismissed?: boolean) => Offer[];
   getHistoryForOffer: (offerId: string) => PricePoint[];
@@ -177,27 +62,36 @@ interface WishlistStoreValue {
 const WishlistStoreContext = createContext<WishlistStoreValue | null>(null);
 
 export function WishlistStoreProvider({ children }: { children: ReactNode }) {
-  // Empty on SSR + first client paint so markup matches; seed/localStorage load in effect.
   const [state, setState] = useState<AppState>(EMPTY_STATE);
   const [ready, setReady] = useState(false);
   const stateRef = useRef(state);
-  stateRef.current = state;
 
   useEffect(() => {
-    let next = createSeedState();
-    try {
-      const raw = localStorage.getItem(STORAGE_KEY);
-      if (raw) {
-        const parsed: unknown = JSON.parse(raw);
-        if (isAppState(parsed) && parsed.products.length > 0) {
-          next = parsed;
+    stateRef.current = state;
+  }, [state]);
+
+  useEffect(() => {
+    let cancelled = false;
+    // Defer so we don't sync-setState during the effect body (React Compiler lint).
+    const id = window.setTimeout(() => {
+      if (cancelled) return;
+      try {
+        const raw = localStorage.getItem(STORAGE_KEY);
+        if (raw) {
+          const parsed: unknown = JSON.parse(raw);
+          if (isAppState(parsed)) {
+            setState(parsed);
+          }
         }
+      } catch {
+        // keep empty
       }
-    } catch {
-      // keep seed
-    }
-    setState(next);
-    setReady(true);
+      setReady(true);
+    }, 0);
+    return () => {
+      cancelled = true;
+      window.clearTimeout(id);
+    };
   }, []);
 
   useEffect(() => {
@@ -212,30 +106,23 @@ export function WishlistStoreProvider({ children }: { children: ReactNode }) {
   const trackProduct = useCallback((result: SearchResult, queryText: string) => {
     const now = new Date().toISOString();
     const product = productFromResult(result, queryText, now);
-    // Optimistic local stubs so navigation is instant; live discover refreshes after.
-    const candidates = discoverOffers(result);
-    const offers = candidatesToOffers(product.id, candidates, now);
-    const history = offers.flatMap((o) =>
-      buildHistory(o.id, o.lastPrice, o.currency),
-    );
     const notifs: NotificationEvent[] = [
       {
         id: uid("notif"),
         productId: product.id,
         kind: "source_added",
-        message: `Tracking ${product.title} across Amazon, eBay, and a generic URL match.`,
+        message: `Tracking ${product.title} — discovering live sources…`,
         createdAt: now,
         read: false,
       },
     ];
     setState((prev) => ({
       products: [product, ...prev.products],
-      offers: [...offers, ...prev.offers],
-      priceHistory: [...history, ...prev.priceHistory],
+      offers: prev.offers,
+      priceHistory: prev.priceHistory,
       notifications: [...notifs, ...prev.notifications],
     }));
 
-    // User-initiated live discovery (rate-limited server scrape / API / stub).
     void (async () => {
       try {
         const res = await fetch("/api/discover", {
@@ -246,49 +133,67 @@ export function WishlistStoreProvider({ children }: { children: ReactNode }) {
         if (!res.ok) return;
         const data = (await res.json()) as {
           offers?: Offer[];
-          modes?: { amazon?: string; ebay?: string };
+          modes?: { amazon?: string; ebay?: string; generic?: string };
+          notes?: string[];
         };
-        if (!data.offers?.length) return;
-        const liveOffers = data.offers;
+        const liveOffers = (data.offers ?? []).filter(
+          (o) => typeof o.lastPrice === "number" && o.lastPrice > 0,
+        );
+        const liveHistory: PricePoint[] = liveOffers.map((o) => ({
+          id: uid("pp"),
+          offerId: o.id,
+          price: o.lastPrice,
+          currency: o.currency,
+          capturedAt: o.lastCheckedAt || new Date().toISOString(),
+          source: "poll",
+        }));
+        const liveSources = [
+          data.modes?.amazon === "scrape" || data.modes?.amazon === "api"
+            ? "Amazon"
+            : null,
+          data.modes?.ebay === "scrape" || data.modes?.ebay === "api"
+            ? "eBay"
+            : null,
+          data.modes?.generic === "scrape" ? "official store" : null,
+        ].filter(Boolean);
+
         setState((prev) => {
-          const without = prev.offers.filter((o) => o.productId !== product.id);
-          const liveHistory = liveOffers.flatMap((o) =>
-            buildHistory(o.id, o.lastPrice, o.currency),
+          const withoutOffers = prev.offers.filter((o) => o.productId !== product.id);
+          const withoutHistory = prev.priceHistory.filter(
+            (p) => !prev.offers.some((o) => o.productId === product.id && o.id === p.offerId),
           );
-          const modes = [
-            data.modes?.amazon === "scrape" || data.modes?.amazon === "api"
-              ? "Amazon live"
-              : null,
-            data.modes?.ebay === "scrape" || data.modes?.ebay === "api"
-              ? "eBay live"
-              : null,
-          ].filter(Boolean);
-          const extra: NotificationEvent | null = modes.length
-            ? {
-                id: uid("notif"),
-                productId: product.id,
-                kind: "source_added",
-                message: `Refined sources with ${modes.join(" + ")} discovery.`,
-                createdAt: new Date().toISOString(),
-                read: false,
-              }
-            : null;
+          const extra: NotificationEvent = {
+            id: uid("notif"),
+            productId: product.id,
+            kind: "source_added",
+            message: liveOffers.length
+              ? `Found ${liveOffers.length} live source${liveOffers.length === 1 ? "" : "s"}${liveSources.length ? ` (${liveSources.join(", ")})` : ""}.`
+              : `No live sources found for ${product.title}. Try again later or another query.`,
+            createdAt: new Date().toISOString(),
+            read: false,
+          };
           return {
             ...prev,
-            offers: [...liveOffers, ...without],
-            priceHistory: [
-              ...liveHistory,
-              ...prev.priceHistory.filter(
-                (p) => !offers.some((o) => o.id === p.offerId),
-              ),
-            ],
-            notifications: extra
-              ? [extra, ...prev.notifications]
-              : prev.notifications,
+            offers: [...liveOffers, ...withoutOffers],
+            priceHistory: [...liveHistory, ...withoutHistory],
+            notifications: [extra, ...prev.notifications],
           };
         });
       } catch {
-        // keep optimistic stubs
+        setState((prev) => ({
+          ...prev,
+          notifications: [
+            {
+              id: uid("notif"),
+              productId: product.id,
+              kind: "source_added",
+              message: `Live discovery failed for ${product.title}.`,
+              createdAt: new Date().toISOString(),
+              read: false,
+            },
+            ...prev.notifications,
+          ],
+        }));
       }
     })();
 
@@ -352,7 +257,7 @@ export function WishlistStoreProvider({ children }: { children: ReactNode }) {
     }));
   }, []);
 
-  const runMockPriceCheck = useCallback((productId: string) => {
+  const runPriceCheck = useCallback((productId: string) => {
     const snapshot = stateRef.current;
     const product = snapshot.products.find((p) => p.id === productId);
     const target = snapshot.offers.find(
@@ -362,9 +267,6 @@ export function WishlistStoreProvider({ children }: { children: ReactNode }) {
 
     void (async () => {
       const now = new Date().toISOString();
-      let newPrice = target.lastPrice;
-      let modeLabel: "live" | "stub" | "mock" = "mock";
-
       try {
         const res = await fetch("/api/price-check", {
           method: "POST",
@@ -372,62 +274,88 @@ export function WishlistStoreProvider({ children }: { children: ReactNode }) {
           body: JSON.stringify({
             sourceId: target.sourceId,
             url: target.url,
-            fallbackPrice: target.lastPrice,
             currency: target.currency,
           }),
         });
-        if (res.ok) {
-          const data = (await res.json()) as { price?: number; mode?: string };
-          if (typeof data.price === "number") {
-            newPrice = data.price;
-            modeLabel =
-              data.mode === "scrape" || data.mode === "api" ? "live" : "stub";
-          }
+        if (!res.ok) throw new Error("price-check failed");
+        const data = (await res.json()) as {
+          price?: number | null;
+          mode?: string;
+          note?: string;
+        };
+        if (data.mode !== "scrape" && data.mode !== "api") {
+          setState((prev) => ({
+            ...prev,
+            notifications: product.notifyEnabled
+              ? [
+                  {
+                    id: uid("notif"),
+                    productId,
+                    offerId: target.id,
+                    kind: "price_rise",
+                    message: `${target.merchant}: live price check failed${data.note ? ` — ${data.note}` : ""}.`,
+                    createdAt: now,
+                    read: false,
+                  },
+                  ...prev.notifications,
+                ]
+              : prev.notifications,
+          }));
+          return;
         }
+        if (typeof data.price !== "number") return;
+
+        const newPrice = data.price;
+        const dropped = newPrice < target.lastPrice;
+        const newPoint: PricePoint = {
+          id: uid("pp"),
+          offerId: target.id,
+          price: newPrice,
+          currency: target.currency,
+          capturedAt: now,
+          source: "poll",
+        };
+        const notif: NotificationEvent = {
+          id: uid("notif"),
+          productId,
+          offerId: target.id,
+          kind: dropped ? "price_drop" : "price_rise",
+          message: `${target.merchant} price for ${product.title} is $${newPrice.toFixed(2)} (live scrape).`,
+          createdAt: now,
+          read: false,
+        };
+
+        setState((prev) => ({
+          ...prev,
+          offers: prev.offers.map((o) =>
+            o.id === target.id
+              ? { ...o, lastPrice: newPrice, lastCheckedAt: now }
+              : o.productId === productId
+                ? { ...o, lastCheckedAt: now }
+                : o,
+          ),
+          priceHistory: [...prev.priceHistory, newPoint],
+          notifications: product.notifyEnabled
+            ? [notif, ...prev.notifications]
+            : prev.notifications,
+        }));
       } catch {
-        modeLabel = "mock";
+        setState((prev) => ({
+          ...prev,
+          notifications: [
+            {
+              id: uid("notif"),
+              productId,
+              offerId: target.id,
+              kind: "price_rise",
+              message: `Live price check failed for ${product.title}.`,
+              createdAt: now,
+              read: false,
+            },
+            ...prev.notifications,
+          ],
+        }));
       }
-
-      // Only invent a demo drop when we have no live scrape/API signal
-      if (modeLabel !== "live") {
-        const drop = Math.round((8 + (target.lastPrice % 17)) * 100) / 100;
-        newPrice = Math.max(1, Math.round((target.lastPrice - drop) * 100) / 100);
-      }
-
-      const dropped = newPrice < target.lastPrice;
-      const newPoint: PricePoint = {
-        id: uid("pp"),
-        offerId: target.id,
-        price: newPrice,
-        currency: target.currency,
-        capturedAt: now,
-        source: modeLabel === "live" ? "poll" : "manual",
-      };
-
-      const notif: NotificationEvent = {
-        id: uid("notif"),
-        productId,
-        offerId: target.id,
-        kind: dropped ? "price_drop" : "price_rise",
-        message: `${target.merchant} price for ${product.title} is $${newPrice.toFixed(2)} (${modeLabel} check).`,
-        createdAt: now,
-        read: false,
-      };
-
-      setState((prev) => ({
-        ...prev,
-        offers: prev.offers.map((o) =>
-          o.id === target.id
-            ? { ...o, lastPrice: newPrice, lastCheckedAt: now }
-            : o.productId === productId
-              ? { ...o, lastCheckedAt: now }
-              : o,
-        ),
-        priceHistory: [...prev.priceHistory, newPoint],
-        notifications: product.notifyEnabled
-          ? [notif, ...prev.notifications]
-          : prev.notifications,
-      }));
     })();
   }, []);
 
@@ -470,7 +398,7 @@ export function WishlistStoreProvider({ children }: { children: ReactNode }) {
     setNotifyEnabled,
     markNotificationRead,
     markAllNotificationsRead,
-    runMockPriceCheck,
+    runPriceCheck,
     getProduct,
     getOffersForProduct,
     getHistoryForOffer,

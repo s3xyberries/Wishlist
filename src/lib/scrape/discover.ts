@@ -1,7 +1,4 @@
-import {
-  candidatesToOffers,
-  type OfferCandidate,
-} from "@/lib/adapters";
+import { candidatesToOffers, type OfferCandidate } from "@/lib/adapters";
 import type { Offer, SearchResult } from "@/lib/types";
 import { discoverAmazonOffer } from "./amazon";
 import { discoverEbayOffer } from "./ebay";
@@ -19,8 +16,7 @@ export interface LiveDiscoverResponse {
 }
 
 /**
- * Fan-out offer discovery for a confirmed product identity.
- * User-initiated only; each retailer path falls back to stubs.
+ * Fan-out live offer discovery only — no stub/mock candidates.
  */
 export async function discoverLiveOffers(
   product: SearchResult,
@@ -31,8 +27,16 @@ export async function discoverLiveOffers(
     discoverEbayOffer(product),
     discoverGenericOffer(product),
   ]);
-  const candidates = [amazon.candidate, ebay.candidate, generic.candidate];
-  const notes = [amazon.note, ebay.note, generic.note];
+
+  const paired = [
+    { result: amazon, key: "amazon" as const },
+    { result: ebay, key: "ebay" as const },
+    { result: generic, key: "generic" as const },
+  ];
+
+  const candidates = paired
+    .map((p) => p.result.candidate)
+    .filter((c): c is OfferCandidate => c != null);
 
   const payload: LiveDiscoverResponse = {
     candidates,
@@ -41,7 +45,7 @@ export async function discoverLiveOffers(
       ebay: ebay.mode,
       generic: generic.mode,
     },
-    notes,
+    notes: paired.map((p) => p.result.note),
   };
 
   if (productId) {

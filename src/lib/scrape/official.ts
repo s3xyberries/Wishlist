@@ -1,15 +1,14 @@
 import * as cheerio from "cheerio";
-import { genericDiscover, type OfferCandidate } from "@/lib/adapters";
+import type { OfferCandidate } from "@/lib/adapters";
 import type { SearchResult } from "@/lib/types";
 import { fetchHtml, parseMoney, ScrapeError } from "./http";
 
 export interface DiscoverResult {
-  candidate: OfferCandidate;
-  mode: "scrape" | "stub";
+  candidate: OfferCandidate | null;
+  mode: "scrape" | "none";
   note: string;
 }
 
-/** Known official PDP patterns for products the mock/live search often miss. */
 function officialUrlFor(product: SearchResult): string | null {
   const hay = `${product.title} ${product.brand ?? ""}`.toLowerCase();
   if (/bambu/.test(hay) && /\bh2s\b/.test(hay)) {
@@ -36,7 +35,7 @@ function parseJsonLdProduct(
       if (Array.isArray(parsed)) blocks.push(...parsed);
       else blocks.push(parsed);
     } catch {
-      // ignore bad json-ld
+      // ignore
     }
   });
 
@@ -54,7 +53,6 @@ function parseJsonLdProduct(
         price = parseMoney(String(offers.price ?? offers.lowPrice ?? "")) ?? undefined;
         currency = String(offers.priceCurrency ?? "USD");
       }
-      // ProductGroup variants
       const variants = obj.hasVariant as Array<Record<string, unknown>> | undefined;
       if ((!price || price <= 0) && Array.isArray(variants)) {
         for (const v of variants) {
@@ -85,19 +83,15 @@ function parseJsonLdProduct(
   return null;
 }
 
-/**
- * Prefer official brand PDP when we recognize the product; else generic stub.
- */
 export async function discoverGenericOffer(
   product: SearchResult,
 ): Promise<DiscoverResult> {
-  const stub = genericDiscover(product);
   const official = officialUrlFor(product);
   if (!official) {
     return {
-      candidate: stub,
-      mode: "stub",
-      note: "No official store mapping — generic stub URL.",
+      candidate: null,
+      mode: "none",
+      note: "No official store mapping for this product.",
     };
   }
 
@@ -111,10 +105,11 @@ export async function discoverGenericOffer(
     }
     const ld = parseJsonLdProduct(html);
     const $ = cheerio.load(html);
-    const ogPrice =
-      parseMoney($('meta[property="product:price:amount"]').attr("content")) ||
-      parseMoney(html.match(/\$\s?([\d,]+\.\d{2})/)?.[0] ?? null);
-    const price = ld?.price && ld.price > 50 ? ld.price : ogPrice ?? stub.price;
+    const ogPrice = parseMoney(
+      $('meta[property="product:price:amount"]').attr("content"),
+    );
+    const price = ld?.price && ld.price > 50 ? ld.price : ogPrice;
+    if (price == null) throw new ScrapeError("Official store missing price");
     const title =
       ld?.name ||
       $('meta[property="og:title"]').attr("content")?.trim() ||
@@ -127,7 +122,7 @@ export async function discoverGenericOffer(
         url: ld?.url || official,
         merchant: "Official store",
         currency: ld?.currency || product.currency || "USD",
-        price: price ?? stub.price,
+        price,
         suspect: false,
       },
       mode: "scrape",
@@ -135,35 +130,27 @@ export async function discoverGenericOffer(
     };
   } catch {
     return {
-      candidate: {
-        ...stub,
-        title: product.title,
-        url: official,
-        merchant: "Official store",
-        suspect: false,
-        price: stub.price,
-      },
-      mode: "stub",
-      note: "Official URL known but live parse failed — kept URL with stub price.",
+      candidate: null,
+      mode: "none",
+      note: "Official store scrape failed.",
     };
   }
 }
 
 export async function fetchOfficialOrGenericPrice(
   url: string,
-  fallbackPrice: number,
   currency = "USD",
 ): Promise<{
-  price: number;
+  price: number | null;
   currency: string;
   title?: string;
-  mode: "scrape" | "stub";
+  mode: "scrape" | "none";
   note: string;
 }> {
   try {
     const host = new URL(url).hostname;
     if (!host || host.endsWith("example-retailer.example")) {
-      throw new ScrapeError("Stub generic host");
+      throw new ScrapeError("Invalid host");
     }
     const { html } = await fetchHtml(url, {
       timeoutMs: 12_000,
@@ -189,10 +176,10 @@ export async function fetchOfficialOrGenericPrice(
     };
   } catch {
     return {
-      price: fallbackPrice,
+      price: null,
       currency,
-      mode: "stub",
-      note: "Generic URL price scrape failed — kept previous price.",
+      mode: "none",
+      note: "Generic URL price scrape failed.",
     };
   }
 }

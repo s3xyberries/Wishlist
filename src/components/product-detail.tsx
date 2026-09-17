@@ -160,7 +160,7 @@ export function ProductDetail({ productId }: { productId: string }) {
     dismissOffer,
     restoreOffer,
     setNotifyEnabled,
-    runMockPriceCheck,
+    runPriceCheck,
   } = useWishlistStore();
 
   const product = getProduct(productId);
@@ -199,8 +199,9 @@ export function ProductDetail({ productId }: { productId: string }) {
 
   async function onCheck() {
     setChecking(true);
-    await new Promise((r) => setTimeout(r, 600));
-    runMockPriceCheck(productId);
+    runPriceCheck(productId);
+    // Give the scrape request a moment before re-enabling the button.
+    await new Promise((r) => setTimeout(r, 1200));
     setChecking(false);
   }
 
@@ -262,7 +263,7 @@ export function ProductDetail({ productId }: { productId: string }) {
               disabled={checking}
             >
               <RefreshCw className={cn("size-4", checking && "animate-spin")} />
-              {checking ? "Checking…" : "Mock price check"}
+              {checking ? "Scraping…" : "Check live price"}
             </Button>
           </div>
         </div>
@@ -277,8 +278,8 @@ export function ProductDetail({ productId }: { productId: string }) {
         </TabsList>
         <TabsContent value="sources" className="mt-4 space-y-3">
           <p className="text-sm text-muted-foreground">
-            Amazon and eBay are stub adapters. The generic listing is often a
-            wrong match — dismiss it to filter your view.
+            Sources are live scrapes only. Dismiss any wrong match to filter
+            your view.
           </p>
           {offers.length === 0 ? (
             <Alert>

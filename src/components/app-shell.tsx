@@ -80,8 +80,8 @@ export function AppShell({ children }: { children: React.ReactNode }) {
       </main>
 
       <footer className="border-t border-border/60 py-4 text-center text-xs text-muted-foreground">
-        Demo data only · Amazon/eBay adapters are stubs · Google Shopping mocked
-        until an API key is provided
+        Live scrape only · no mock catalog · user-triggered search &amp; price
+        checks
       </footer>
     </div>
   );

@@ -8,20 +8,17 @@ export async function GET(request: Request) {
   const q = searchParams.get("q") ?? "";
 
   if (!q.trim()) {
-    return NextResponse.json({ results: [], mode: "mock", note: "Empty query." });
+    return NextResponse.json({ results: [], mode: "empty", note: "Empty query." });
   }
 
   try {
     const payload = await searchProducts(q);
     return NextResponse.json(payload);
   } catch {
-    return NextResponse.json(
-      {
-        results: [],
-        mode: "mock",
-        note: "Search failed unexpectedly.",
-      },
-      { status: 200 },
-    );
+    return NextResponse.json({
+      results: [],
+      mode: "error",
+      note: "Search scrape failed unexpectedly.",
+    });
   }
 }

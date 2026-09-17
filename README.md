@@ -1,6 +1,6 @@
 # Pricekeep
 
-Wishlist and price-tracking web app (PWA-ready). Search products, confirm the right match, track Amazon/eBay/generic sources, review price history, and see an in-app alerts stub.
+Wishlist and price-tracking web app (PWA-ready). Search products via live scrape (or SerpAPI), confirm the right match, track Amazon/eBay/official sources, review price history, and see in-app alerts.
 
 Canonical GitHub repo: **https://github.com/s3xyberries/Wishlist**
 
@@ -22,30 +22,30 @@ npm run lint
 
 ## What works now
 
-- Product search via `/api/search`: SerpAPI (if key) → light Google Shopping HTML scrape → mock catalog
+- Product search via `/api/search`: SerpAPI (if key) → Google Shopping HTML scrape → Amazon search scrape (no mock catalog)
 - Confirm / intercept step before adding to the wishlist
-- On track: `/api/discover` tries restrained Amazon + eBay search parsers (or eBay Browse API), else stubs
+- On track: `/api/discover` scrapes Amazon + eBay (or eBay Browse API) and mapped official PDPs — live offers only
 - Wishlist with notify toggle and remove
 - Product detail: tracked sources, dismiss/restore wrong matches
-- User-triggered “price check” via `/api/price-check` (scrape when possible, mock drop otherwise)
+- User-triggered “Check live price” via `/api/price-check` (scrape/API only; failures surface as alerts, not fake prices)
 - In-app notifications feed (localStorage)
 - PWA manifest + basic service worker shell
 
 ## Scrape policy (important)
 
-Live HTML fetches are **optional, light, and user-initiated only** (search, track/discover, manual price check). There is **no cron / bulk scrape**. Requests use a polite User-Agent, short timeouts, per-host rate limits, and a short in-memory cache. Retailer ToS may still disallow scraping — prefer official APIs when you have keys; mocks always remain the safety net.
+Live HTML fetches are **user-initiated only** (search, track/discover, manual price check). There is **no cron / bulk scrape** and **no mock/stub fallback data**. Requests use a polite User-Agent, short timeouts, per-host rate limits, and a short in-memory cache. Retailer ToS may still disallow scraping — prefer official APIs when you have keys.
 
-## What is mocked vs live
+## Live sources
 
 | Piece | Status |
 |-------|--------|
-| Google Shopping | SerpAPI if `SERPAPI_API_KEY`; else Google HTML; else Amazon search scrape; else mock |
-| Amazon offers / prices | Light search/product HTML with title scoring (avoids accessory false matches); else stub |
-| eBay offers / prices | Browse API if credentials; else light HTML; else stub (often 403 from cloud IPs) |
-| Official / generic | Mapped official PDPs (e.g. Bambu Lab store) scraped via JSON-LD; else stub |
-| Push / email alerts | Stub UI only |
+| Google Shopping | SerpAPI if `SERPAPI_API_KEY`; else Google HTML; else Amazon search scrape |
+| Amazon offers / prices | Light search/product HTML with title scoring (avoids accessory false matches) |
+| eBay offers / prices | Browse API if credentials; else light HTML (often 403 from cloud IPs) |
+| Official / generic | Mapped official PDPs (e.g. Bambu Lab store) scraped via JSON-LD |
+| Push / email alerts | In-app feed only |
 
-Wishlist state persists in `localStorage` (`pricekeep-state-v1`).
+Wishlist state persists in `localStorage` (`pricekeep-state-v3-scrape-only`).
 
 ## Optional env
 
