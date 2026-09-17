@@ -39,10 +39,10 @@ Live HTML fetches are **optional, light, and user-initiated only** (search, trac
 
 | Piece | Status |
 |-------|--------|
-| Google Shopping | SerpAPI if `SERPAPI_API_KEY`; else best-effort HTML; else mock |
-| Amazon offers / prices | Light search/product HTML when unblocked; else stub |
-| eBay offers / prices | Browse API if credentials; else light HTML; else stub |
-| Generic retailer | Stub only |
+| Google Shopping | SerpAPI if `SERPAPI_API_KEY`; else Google HTML; else Amazon search scrape; else mock |
+| Amazon offers / prices | Light search/product HTML with title scoring (avoids accessory false matches); else stub |
+| eBay offers / prices | Browse API if credentials; else light HTML; else stub (often 403 from cloud IPs) |
+| Official / generic | Mapped official PDPs (e.g. Bambu Lab store) scraped via JSON-LD; else stub |
 | Push / email alerts | Stub UI only |
 
 Wishlist state persists in `localStorage` (`pricekeep-state-v1`).
