@@ -11,7 +11,7 @@ import {
   type ReactNode,
 } from "react";
 import { productFromResult } from "./adapters";
-import { uid } from "./format";
+import { formatMoney, uid } from "./format";
 import { DEFAULT_REGION_ID, REGION_COOKIE, isRegionId } from "./region/config";
 import type {
   AppState,
@@ -57,6 +57,10 @@ interface WishlistStoreValue {
   state: AppState;
   unreadCount: number;
   trackProduct: (result: SearchResult, queryText: string) => string;
+  trackUrl: (
+    url: string,
+    options?: { productId?: string },
+  ) => Promise<{ productId: string; offerId: string; title: string }>;
   dismissOffer: (offerId: string) => void;
   restoreOffer: (offerId: string) => void;
   removeProduct: (productId: string) => void;
@@ -240,6 +244,75 @@ export function WishlistStoreProvider({ children }: { children: ReactNode }) {
     return product.id;
   }, []);
 
+  const trackUrl = useCallback(
+    async (url: string, options?: { productId?: string }) => {
+      const region = readClientRegion();
+      const res = await fetch("/api/track-url", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "x-pricekeep-region": region,
+        },
+        body: JSON.stringify({
+          url,
+          productId: options?.productId,
+          region,
+        }),
+      });
+      const data = (await res.json()) as {
+        ok?: boolean;
+        error?: string;
+        product?: Product;
+        offer?: Offer;
+        pricePoint?: PricePoint;
+        attachedToExisting?: boolean;
+      };
+      if (!res.ok || !data.ok || !data.product || !data.offer || !data.pricePoint) {
+        throw new Error(data.error || "Could not track that URL");
+      }
+
+      const product = data.product;
+      const offer = data.offer;
+      const pricePoint = data.pricePoint;
+      const attached = Boolean(options?.productId && data.attachedToExisting);
+
+      setState((prev) => {
+        const products = attached
+          ? prev.products
+          : prev.products.some((p) => p.id === product.id)
+            ? prev.products
+            : [product, ...prev.products];
+        const withoutSameOffer = prev.offers.filter((o) => o.id !== offer.id);
+        return {
+          products,
+          offers: [offer, ...withoutSameOffer],
+          priceHistory: [...prev.priceHistory, pricePoint],
+          notifications: [
+            {
+              id: uid("notif"),
+              productId: product.id,
+              offerId: offer.id,
+              kind: "source_added",
+              message: attached
+                ? `Added link source for ${product.title} (${offer.merchant}).`
+                : `Tracking link: ${product.title} at ${formatMoney(offer.lastPrice, offer.currency)} on ${offer.merchant}.`,
+              createdAt: new Date().toISOString(),
+              read: false,
+            },
+            ...prev.notifications,
+          ],
+        };
+      });
+
+      return {
+        productId: product.id,
+        offerId: offer.id,
+        title: product.title,
+      };
+    },
+    [],
+  );
+
   const dismissOffer = useCallback((offerId: string) => {
     setState((prev) => ({
       ...prev,
@@ -270,6 +343,11 @@ export function WishlistStoreProvider({ children }: { children: ReactNode }) {
         notifications: prev.notifications.filter((n) => n.productId !== productId),
       };
     });
+    void fetch("/api/tracked-offers", {
+      method: "DELETE",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ productId }),
+    }).catch(() => undefined);
   }, []);
 
   const setNotifyEnabled = useCallback((productId: string, enabled: boolean) => {
@@ -432,6 +510,7 @@ export function WishlistStoreProvider({ children }: { children: ReactNode }) {
     state,
     unreadCount,
     trackProduct,
+    trackUrl,
     dismissOffer,
     restoreOffer,
     removeProduct,

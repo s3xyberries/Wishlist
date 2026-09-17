@@ -1,5 +1,9 @@
 import { NextResponse } from "next/server";
-import { upsertTrackedOffers } from "@/lib/scheduler/tracked-offers";
+import {
+  deleteTrackedOffer,
+  deleteTrackedOffersForProduct,
+  upsertTrackedOffers,
+} from "@/lib/scheduler/tracked-offers";
 import { parseRegionId } from "@/lib/region/server";
 import type { SourceId } from "@/lib/types";
 
@@ -38,4 +42,26 @@ export async function POST(request: Request) {
 
   upsertTrackedOffers(offers);
   return NextResponse.json({ ok: true, count: offers.length, region });
+}
+
+/** Remove tracked offer(s) from the scheduler store. */
+export async function DELETE(request: Request) {
+  let body: { offerId?: string; productId?: string };
+  try {
+    body = (await request.json()) as typeof body;
+  } catch {
+    return NextResponse.json({ error: "Invalid JSON" }, { status: 400 });
+  }
+  if (body.productId) {
+    deleteTrackedOffersForProduct(body.productId);
+    return NextResponse.json({ ok: true, removed: "product" });
+  }
+  if (body.offerId) {
+    deleteTrackedOffer(body.offerId);
+    return NextResponse.json({ ok: true, removed: "offer" });
+  }
+  return NextResponse.json(
+    { error: "offerId or productId required" },
+    { status: 400 },
+  );
 }

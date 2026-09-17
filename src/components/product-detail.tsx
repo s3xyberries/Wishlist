@@ -11,6 +11,7 @@ import {
   RefreshCw,
 } from "lucide-react";
 import { SOURCE_LABELS } from "@/lib/adapters";
+import { AddLinkForm } from "@/components/add-link-form";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button, buttonVariants } from "@/components/ui/button";
@@ -278,9 +279,15 @@ export function ProductDetail({ productId }: { productId: string }) {
         </TabsList>
         <TabsContent value="sources" className="mt-4 space-y-3">
           <p className="text-sm text-muted-foreground">
-            Sources are live scrapes only. Dismiss any wrong match to filter
-            your view.
+            Sources are live scrapes or links you pasted. Dismiss any wrong match
+            to filter your view.
           </p>
+          <div className="rounded-lg border border-border/70 bg-muted/30 p-3">
+            <p className="mb-2 text-xs font-medium text-teal-950">
+              Add another product URL as a source
+            </p>
+            <AddLinkForm productId={product.id} compact />
+          </div>
           {offers.length === 0 ? (
             <Alert>
               <AlertTitle>No sources yet</AlertTitle>

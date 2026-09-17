@@ -13,7 +13,7 @@ export default function WishlistPage() {
           Wishlist
         </h1>
         <p className="mt-1 text-sm text-muted-foreground">
-          Products you confirmed and are tracking across sources.
+          Products you confirmed or added by link — tracked across sources.
         </p>
       </div>
       <WishlistView />

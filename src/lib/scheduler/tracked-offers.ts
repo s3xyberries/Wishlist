@@ -63,6 +63,45 @@ export function upsertTrackedOffers(offers: TrackedOfferRow[]) {
   }
 }
 
+/** Append an initial / manual history point for a newly tracked URL. */
+export function appendPriceHistoryPoint(point: {
+  id: string;
+  offerId: string;
+  price: number;
+  currency: string;
+  capturedAt: string;
+  source?: string;
+}) {
+  const db = getDb();
+  db.prepare(
+    `INSERT INTO price_history (id, offer_id, price, currency, captured_at, source)
+     VALUES (?, ?, ?, ?, ?, ?)`,
+  ).run(
+    point.id,
+    point.offerId,
+    point.price,
+    point.currency,
+    point.capturedAt,
+    point.source ?? "manual",
+  );
+}
+
+export function deleteTrackedOffer(offerId: string) {
+  const db = getDb();
+  db.prepare(`DELETE FROM price_history WHERE offer_id = ?`).run(offerId);
+  db.prepare(`DELETE FROM tracked_offers WHERE id = ?`).run(offerId);
+}
+
+export function deleteTrackedOffersForProduct(productId: string) {
+  const db = getDb();
+  const rows = db
+    .prepare(`SELECT id FROM tracked_offers WHERE product_id = ?`)
+    .all(productId) as Array<{ id: string }>;
+  for (const row of rows) {
+    deleteTrackedOffer(row.id);
+  }
+}
+
 export function listTrackedOffers(region?: RegionId): TrackedOfferRow[] {
   const db = getDb();
   const rows = region
