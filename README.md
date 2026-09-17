@@ -28,6 +28,7 @@ npm run scheduler            # local daily cron (06:00 + boot run)
 - Product search via `/api/search?region=au`: **SQLite catalog first** (6h TTL) → SerpAPI → Google Shopping → Amazon (.com.au) → official brand PDPs. `?refresh=1` forces a re-scrape
 - Shared catalog browse at `/catalog` (region-scoped)
 - Confirm / intercept step before adding to the wishlist
+- **Paste a product URL** on Wishlist (or product sources) → scrape title/price → track + daily recheck
 - On track: `/api/discover` scrapes regional Amazon + eBay + official PDPs; registers offers for the daily scheduler
 - Wishlist with notify toggle and remove
 - Product detail: tracked sources, dismiss/restore wrong matches
