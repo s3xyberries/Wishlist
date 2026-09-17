@@ -75,7 +75,6 @@ export function SearchExperience() {
     }
 
     const result = await fetchSearchApi({
-      origin: window.location.origin,
       q,
       regionId,
       forceRefresh,

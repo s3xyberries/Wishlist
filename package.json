@@ -3,9 +3,9 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
-    "dev": "next dev --webpack --port 43127",
+    "dev": "next dev --webpack --hostname 127.0.0.1 --port 43127",
     "build": "next build --webpack",
-    "start": "next start --port 43127",
+    "start": "next start --hostname 127.0.0.1 --port 43127",
     "lint": "eslint",
     "price-check:daily": "tsx scripts/daily-price-check.ts",
     "scheduler": "tsx scripts/scheduler.ts"

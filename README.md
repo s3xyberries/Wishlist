@@ -16,7 +16,7 @@ Canonical GitHub repo: **https://github.com/s3xyberries/Wishlist**
 
 1. Install [Node.js 20+](https://nodejs.org) (22+ recommended).
 2. Double-click **`run.bat`** in the project folder (or right-click **`run.ps1`** → Run with PowerShell). Paths with spaces (e.g. `Desktop\Price Checker\Wishlist`) are fine — the launcher `cd`s into its own folder.
-3. Each launch runs **`npm install`**, then **`npm run build`** when `.next\BUILD_ID` is missing, and only starts after the build succeeds. Then it opens [http://127.0.0.1:43127](http://127.0.0.1:43127).
+3. Each launch runs **`npm install`**, then **`npm run build`** when `.next\BUILD_ID` is missing, and only starts after the build succeeds. Then it opens [http://127.0.0.1:43127](http://127.0.0.1:43127) (IPv4 loopback — the server also binds to `127.0.0.1`).
 4. Leave the console window open while you use Pricekeep. Close it to stop the server. On failure the window stays open so you can read the error (`pause` / Enter).
 5. If you see **“Could not find a production build”** or **“Can't resolve 'better-sqlite3'”**, delete `.next` (and `node_modules` if the module is missing), ensure VS Build Tools are installed, then double-click `run.bat` again. Do **not** run `next build` with Turbopack on Windows for this app.
 6. If Next warns that it ignored `package-lock.json` because of a file under `C:\Users\<you>\`, delete that **stray** `C:\Users\<you>\package-lock.json` (not the one inside this repo). `outputFileTracingRoot` in `next.config.ts` also pins the app to this project folder.
@@ -49,9 +49,10 @@ If search shows an error, the UI now surfaces the real `/api/search` HTTP status
 1. Confirm the server is up on port **43127** (`npm run dev` or `npm start`).
 2. Hit [http://127.0.0.1:43127/api/health](http://127.0.0.1:43127/api/health) — should report `catalog.driver: "better-sqlite3"` and `catalog.available: true`.
 3. Hit [http://127.0.0.1:43127/api/search?q=bambu%20lab%20h2s&region=au](http://127.0.0.1:43127/api/search?q=bambu%20lab%20h2s&region=au) directly in the browser — you must see **JSON**, not an HTML page.
-4. If the UI says search returned **HTML** with HTTP 200: hard-refresh (Ctrl+Shift+R). An older service worker used to fall back to the app shell for failed `/api/*` requests; current `sw.js` skips `/api/` entirely. You can also unregister the service worker for `127.0.0.1:43127` in Chrome DevTools → Application → Service Workers.
-5. If `better-sqlite3` failed to build: delete `node_modules`, run `npm install` again, then restart the server (`npm run build` uses **webpack**).
-6. Use `http://127.0.0.1:43127` (not a different host/port) so relative `/api/search` matches the Next process.
+4. If the UI says **NetworkError** / could not reach `/api/search`: stay on **http://127.0.0.1:43127** (what `run.bat` opens). Firefox treats `localhost` and `127.0.0.1` as different sites — mixing them breaks fetch/service workers. Leave the `run.bat` console open. Hard-refresh once after pull.
+5. If the UI says search returned **HTML** with HTTP 200: hard-refresh (Ctrl+Shift+R). Older service workers could return the app shell for `/api/*`; local loopback now unregisters the SW automatically.
+6. If `better-sqlite3` failed to build: delete `node_modules`, run `npm install` again, then restart the server (`npm run build` uses **webpack**).
+7. Prefer `http://127.0.0.1:43127` over `http://localhost:43127` so the host matches `run.bat`.
 
 ## What works now
 

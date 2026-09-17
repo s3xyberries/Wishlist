@@ -1,5 +1,5 @@
 /* Pricekeep offline shell — navigations only; never intercept /api/* */
-const CACHE = "pricekeep-shell-v2";
+const CACHE = "pricekeep-shell-v3";
 const SHELL = ["/", "/wishlist", "/notifications", "/catalog", "/manifest.webmanifest"];
 
 self.addEventListener("install", (event) => {
@@ -31,7 +31,7 @@ function shouldHandle(request) {
     return false;
   }
   if (url.origin !== self.location.origin) return false;
-  // API + Next internals must hit the network directly (never HTML shell fallback).
+  // API + Next internals must hit the network directly (never HTML / Response.error).
   if (url.pathname.startsWith("/api/")) return false;
   if (url.pathname.startsWith("/_next/")) return false;
   // Only cache shell navigations / known static shell URLs.
@@ -59,7 +59,8 @@ self.addEventListener("fetch", (event) => {
           const shell = await caches.match("/");
           if (shell) return shell;
         }
-        return Response.error();
+        // Do not return Response.error() for non-nav — that surfaces as NetworkError in Firefox.
+        return new Response("Offline", { status: 503, statusText: "Offline" });
       }),
   );
 });

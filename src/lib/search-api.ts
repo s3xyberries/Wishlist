@@ -1,5 +1,7 @@
 /** Client-only helper: always call the JSON search API (never a document URL). */
 
+import { ensureLoopbackServiceWorkersCleared } from "@/lib/loopback-sw";
+
 export type SearchApiPayload = {
   results?: unknown[];
   mode?: string;
@@ -30,27 +32,28 @@ export type SearchApiResult =
       data?: SearchApiPayload;
     };
 
-export function buildSearchApiUrl(
-  origin: string,
+/** Relative same-origin path — always matches the tab’s host (127.0.0.1). */
+export function buildSearchApiPath(
   q: string,
   regionId: string,
   forceRefresh = false,
 ): string {
-  const url = new URL("/api/search", origin);
-  url.searchParams.set("q", q);
-  url.searchParams.set("region", regionId);
-  if (forceRefresh) url.searchParams.set("refresh", "1");
-  return url.toString();
+  const params = new URLSearchParams();
+  params.set("q", q);
+  params.set("region", regionId);
+  if (forceRefresh) params.set("refresh", "1");
+  return `/api/search?${params.toString()}`;
 }
 
 export async function fetchSearchApi(options: {
-  origin: string;
   q: string;
   regionId: string;
   forceRefresh?: boolean;
 }): Promise<SearchApiResult> {
-  const requestUrl = buildSearchApiUrl(
-    options.origin,
+  // Stale service workers on loopback can turn /api failures into Firefox NetworkError.
+  await ensureLoopbackServiceWorkersCleared();
+
+  const requestUrl = buildSearchApiPath(
     options.q,
     options.regionId,
     Boolean(options.forceRefresh),
@@ -68,6 +71,7 @@ export async function fetchSearchApi(options: {
       },
     });
   } catch (err) {
+    const detail = err instanceof Error ? err.message : String(err);
     return {
       ok: false,
       status: 0,
@@ -75,10 +79,7 @@ export async function fetchSearchApi(options: {
       rawPreview: "",
       contentType: "",
       reason: "network",
-      message:
-        err instanceof Error
-          ? `Could not reach ${requestUrl}: ${err.message}`
-          : `Could not reach ${requestUrl}. Is the Next.js server running?`,
+      message: `Could not reach ${requestUrl}: ${detail}. Leave the run.bat window open on http://127.0.0.1:43127, hard-refresh once, then try again. If it keeps failing, check that console for a server crash and restart run.bat.`,
     };
   }
 
@@ -95,7 +96,7 @@ export async function fetchSearchApi(options: {
       rawPreview: rawText.slice(0, 180),
       contentType,
       reason: "html",
-      message: `Search expected JSON but got HTML (HTTP ${res.status}) from ${requestUrl}. Hard-refresh (Ctrl+Shift+R) or unregister the service worker for this origin, then try again.`,
+      message: `Search expected JSON but got HTML (HTTP ${res.status}) from ${requestUrl}. Hard-refresh (Ctrl+Shift+R) on http://127.0.0.1:43127.`,
     };
   }
 

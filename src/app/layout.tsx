@@ -38,12 +38,35 @@ export const viewport: Viewport = {
   initialScale: 1,
 };
 
+/** Runs before React — clears stale SWs on 127.0.0.1/localhost so /api fetch is not NetworkError'd. */
+const LOOPBACK_SW_CLEAR = `
+(function(){
+  try {
+    var h = location.hostname;
+    if (h !== "127.0.0.1" && h !== "localhost" && h !== "[::1]" && h !== "::1") return;
+    if (!("serviceWorker" in navigator)) return;
+    navigator.serviceWorker.getRegistrations().then(function(rs){
+      rs.forEach(function(r){ r.unregister(); });
+    });
+    if ("caches" in window) {
+      caches.keys().then(function(keys){
+        keys.filter(function(k){ return k.indexOf("pricekeep-shell") === 0; })
+          .forEach(function(k){ caches.delete(k); });
+      });
+    }
+  } catch (e) {}
+})();
+`;
+
 export default function RootLayout({ children }: LayoutProps<"/">) {
   return (
     <html
       lang="en"
       className={`${manrope.variable} ${fraunces.variable} h-full antialiased`}
     >
+      <head>
+        <script dangerouslySetInnerHTML={{ __html: LOOPBACK_SW_CLEAR }} />
+      </head>
       <body className="min-h-full flex flex-col font-sans">
         <WishlistStoreProvider>
           <RegionProvider>
