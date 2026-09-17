@@ -30,14 +30,16 @@ export function SearchExperience() {
   const [submitted, setSubmitted] = useState("");
   const [results, setResults] = useState<SearchResult[]>([]);
   const [status, setStatus] = useState<Status>("idle");
+  const [searchMode, setSearchMode] = useState<string>("mock");
+  const [searchNote, setSearchNote] = useState<string | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [selected, setSelected] = useState<SearchResult | null>(null);
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [pending, startTransition] = useTransition();
 
   const usingMock = useMemo(
-    () => !process.env.NEXT_PUBLIC_GOOGLE_SHOPPING_API_KEY,
-    [],
+    () => searchMode.includes("mock") || searchMode === "idle",
+    [searchMode],
   );
 
   async function runSearch(value: string) {
@@ -53,12 +55,20 @@ export function SearchExperience() {
     try {
       const res = await fetch(`/api/search?q=${encodeURIComponent(q)}`);
       if (!res.ok) throw new Error("Search request failed");
-      const data = (await res.json()) as { results: SearchResult[]; mode: string };
+      const data = (await res.json()) as {
+        results: SearchResult[];
+        mode: string;
+        note?: string;
+      };
       setResults(data.results);
+      setSearchMode(data.mode ?? "mock");
+      setSearchNote(data.note ?? null);
       setStatus(data.results.length ? "ready" : "empty");
     } catch {
       // Local fallback if route is unreachable
       const local = searchMockCatalog(q);
+      setSearchMode("mock");
+      setSearchNote("Could not reach search API — local mock catalog.");
       if (local.length) {
         setResults(local);
         setStatus("ready");
@@ -144,10 +154,12 @@ export function SearchExperience() {
           </form>
           {usingMock ? (
             <p className="text-xs text-muted-foreground">
-              Using mock Google Shopping results. Set{" "}
-              <code className="rounded bg-muted px-1 py-0.5">NEXT_PUBLIC_GOOGLE_SHOPPING_API_KEY</code>{" "}
-              later to wire a live provider.
+              {searchNote ??
+                "Using mock Google Shopping results when live scrape/API is unavailable."}{" "}
+              Optional: <code className="rounded bg-muted px-1 py-0.5">SERPAPI_API_KEY</code>.
             </p>
+          ) : searchNote ? (
+            <p className="text-xs text-muted-foreground">{searchNote}</p>
           ) : null}
         </div>
         <ShoppingBag

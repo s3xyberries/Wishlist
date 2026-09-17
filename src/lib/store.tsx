@@ -6,6 +6,7 @@ import {
   useContext,
   useEffect,
   useMemo,
+  useRef,
   useState,
   type ReactNode,
 } from "react";
@@ -179,6 +180,8 @@ export function WishlistStoreProvider({ children }: { children: ReactNode }) {
   // Empty on SSR + first client paint so markup matches; seed/localStorage load in effect.
   const [state, setState] = useState<AppState>(EMPTY_STATE);
   const [ready, setReady] = useState(false);
+  const stateRef = useRef(state);
+  stateRef.current = state;
 
   useEffect(() => {
     let next = createSeedState();
@@ -209,6 +212,7 @@ export function WishlistStoreProvider({ children }: { children: ReactNode }) {
   const trackProduct = useCallback((result: SearchResult, queryText: string) => {
     const now = new Date().toISOString();
     const product = productFromResult(result, queryText, now);
+    // Optimistic local stubs so navigation is instant; live discover refreshes after.
     const candidates = discoverOffers(result);
     const offers = candidatesToOffers(product.id, candidates, now);
     const history = offers.flatMap((o) =>
@@ -230,6 +234,64 @@ export function WishlistStoreProvider({ children }: { children: ReactNode }) {
       priceHistory: [...history, ...prev.priceHistory],
       notifications: [...notifs, ...prev.notifications],
     }));
+
+    // User-initiated live discovery (rate-limited server scrape / API / stub).
+    void (async () => {
+      try {
+        const res = await fetch("/api/discover", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ product: result, productId: product.id }),
+        });
+        if (!res.ok) return;
+        const data = (await res.json()) as {
+          offers?: Offer[];
+          modes?: { amazon?: string; ebay?: string };
+        };
+        if (!data.offers?.length) return;
+        const liveOffers = data.offers;
+        setState((prev) => {
+          const without = prev.offers.filter((o) => o.productId !== product.id);
+          const liveHistory = liveOffers.flatMap((o) =>
+            buildHistory(o.id, o.lastPrice, o.currency),
+          );
+          const modes = [
+            data.modes?.amazon === "scrape" || data.modes?.amazon === "api"
+              ? "Amazon live"
+              : null,
+            data.modes?.ebay === "scrape" || data.modes?.ebay === "api"
+              ? "eBay live"
+              : null,
+          ].filter(Boolean);
+          const extra: NotificationEvent | null = modes.length
+            ? {
+                id: uid("notif"),
+                productId: product.id,
+                kind: "source_added",
+                message: `Refined sources with ${modes.join(" + ")} discovery.`,
+                createdAt: new Date().toISOString(),
+                read: false,
+              }
+            : null;
+          return {
+            ...prev,
+            offers: [...liveOffers, ...without],
+            priceHistory: [
+              ...liveHistory,
+              ...prev.priceHistory.filter(
+                (p) => !offers.some((o) => o.id === p.offerId),
+              ),
+            ],
+            notifications: extra
+              ? [extra, ...prev.notifications]
+              : prev.notifications,
+          };
+        });
+      } catch {
+        // keep optimistic stubs
+      }
+    })();
+
     return product.id;
   }, []);
 
@@ -291,40 +353,68 @@ export function WishlistStoreProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const runMockPriceCheck = useCallback((productId: string) => {
-    const now = new Date().toISOString();
-    setState((prev) => {
-      const product = prev.products.find((p) => p.id === productId);
-      if (!product) return prev;
+    const snapshot = stateRef.current;
+    const product = snapshot.products.find((p) => p.id === productId);
+    const target = snapshot.offers.find(
+      (o) => o.productId === productId && o.status !== "dismissed",
+    );
+    if (!product || !target) return;
 
-      const activeOffers = prev.offers.filter(
-        (o) => o.productId === productId && o.status !== "dismissed",
-      );
-      if (activeOffers.length === 0) return prev;
+    void (async () => {
+      const now = new Date().toISOString();
+      let newPrice = target.lastPrice;
+      let modeLabel: "live" | "stub" | "mock" = "mock";
 
-      const target = activeOffers[0];
-      const drop = Math.round((8 + (target.lastPrice % 17)) * 100) / 100;
-      const newPrice = Math.max(1, Math.round((target.lastPrice - drop) * 100) / 100);
+      try {
+        const res = await fetch("/api/price-check", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            sourceId: target.sourceId,
+            url: target.url,
+            fallbackPrice: target.lastPrice,
+            currency: target.currency,
+          }),
+        });
+        if (res.ok) {
+          const data = (await res.json()) as { price?: number; mode?: string };
+          if (typeof data.price === "number") {
+            newPrice = data.price;
+            modeLabel =
+              data.mode === "scrape" || data.mode === "api" ? "live" : "stub";
+          }
+        }
+      } catch {
+        modeLabel = "mock";
+      }
 
+      // Only invent a demo drop when we have no live scrape/API signal
+      if (modeLabel !== "live") {
+        const drop = Math.round((8 + (target.lastPrice % 17)) * 100) / 100;
+        newPrice = Math.max(1, Math.round((target.lastPrice - drop) * 100) / 100);
+      }
+
+      const dropped = newPrice < target.lastPrice;
       const newPoint: PricePoint = {
         id: uid("pp"),
         offerId: target.id,
         price: newPrice,
         currency: target.currency,
         capturedAt: now,
-        source: "poll",
+        source: modeLabel === "live" ? "poll" : "manual",
       };
 
       const notif: NotificationEvent = {
         id: uid("notif"),
         productId,
         offerId: target.id,
-        kind: "price_drop",
-        message: `${target.merchant} price for ${product.title} dropped to $${newPrice.toFixed(2)} (mock check).`,
+        kind: dropped ? "price_drop" : "price_rise",
+        message: `${target.merchant} price for ${product.title} is $${newPrice.toFixed(2)} (${modeLabel} check).`,
         createdAt: now,
         read: false,
       };
 
-      return {
+      setState((prev) => ({
         ...prev,
         offers: prev.offers.map((o) =>
           o.id === target.id
@@ -337,8 +427,8 @@ export function WishlistStoreProvider({ children }: { children: ReactNode }) {
         notifications: product.notifyEnabled
           ? [notif, ...prev.notifications]
           : prev.notifications,
-      };
-    });
+      }));
+    })();
   }, []);
 
   const getProduct = useCallback(
