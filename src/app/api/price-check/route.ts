@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { fetchAmazonPrice } from "@/lib/scrape/amazon";
 import { fetchEbayPrice } from "@/lib/scrape/ebay";
+import { fetchOfficialOrGenericPrice } from "@/lib/scrape/official";
 import type { SourceId } from "@/lib/types";
 
 export const dynamic = "force-dynamic";
@@ -41,12 +42,6 @@ export async function POST(request: Request) {
     return NextResponse.json(result);
   }
 
-  // Generic: no live fetch yet
-  const wobble = Math.round(fallbackPrice * (0.97 + (fallbackPrice % 7) * 0.002) * 100) / 100;
-  return NextResponse.json({
-    price: wobble,
-    currency,
-    mode: "stub",
-    note: "Generic URL price check remains stubbed.",
-  });
+  const result = await fetchOfficialOrGenericPrice(url, fallbackPrice, currency);
+  return NextResponse.json(result);
 }

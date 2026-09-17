@@ -1,11 +1,13 @@
 import * as cheerio from "cheerio";
 import { searchMockCatalog } from "@/lib/mock-catalog";
 import type { SearchResult } from "@/lib/types";
+import { searchAmazonAsCatalog } from "./amazon";
 import { fetchHtml, parseMoney, ScrapeError } from "./http";
 
 export type SearchMode =
   | "serpapi"
   | "scrape"
+  | "amazon-scrape"
   | "mock"
   | "scrape-fallback-mock"
   | "serpapi-fallback-mock";
@@ -92,15 +94,10 @@ async function searchViaSerpApi(query: string): Promise<SearchResult[]> {
     .slice(0, 12);
 }
 
-/**
- * Best-effort light scrape of a public Google Shopping results page.
- * Often blocked; callers must fall back to mocks.
- */
 async function searchViaHtmlScrape(query: string): Promise<SearchResult[]> {
   const url = `https://www.google.com/search?tbm=shop&hl=en&gl=us&q=${encodeURIComponent(query)}`;
   const { html } = await fetchHtml(url, { timeoutMs: 7_000, minIntervalMs: 3_000 });
 
-  // Blocked / captcha / consent walls usually lack product-like structure
   const lower = html.toLowerCase();
   if (
     lower.includes("captcha") ||
@@ -115,7 +112,6 @@ async function searchViaHtmlScrape(query: string): Promise<SearchResult[]> {
   const results: SearchResult[] = [];
   const seen = new Set<string>();
 
-  // Several historical layouts; keep selectors opportunistic and shallow.
   const cards = $(
     "div.sh-dgr__grid-result, div.sh-dgr__content, div[data-docid], div.i0X6kf, div.u30d4",
   );
@@ -165,53 +161,76 @@ async function searchViaHtmlScrape(query: string): Promise<SearchResult[]> {
   return results;
 }
 
+function mergeUnique(...lists: SearchResult[][]): SearchResult[] {
+  const seen = new Set<string>();
+  const out: SearchResult[] = [];
+  for (const list of lists) {
+    for (const item of list) {
+      const key = item.title.toLowerCase().slice(0, 80);
+      if (seen.has(key)) continue;
+      seen.add(key);
+      out.push(item);
+    }
+  }
+  return out;
+}
+
 export async function searchProducts(query: string): Promise<SearchResponse> {
   const q = query.trim();
   if (!q) {
     return { results: [], mode: "mock", note: "Empty query." };
   }
 
+  // Prefer curated mock matches first so known SKUs (e.g. Bambu H2S) surface
+  // even when marketplaces only return accessories.
+  const mock = searchMockCatalog(q);
+
   if (hasSerpApiKey()) {
     try {
       const results = await searchViaSerpApi(q);
       if (results.length) {
         return {
-          results,
+          results: mergeUnique(mock, results),
           mode: "serpapi",
           note: "Live Google Shopping via SerpAPI.",
         };
       }
     } catch {
-      // fall through to scrape / mock
-    }
-    try {
-      const results = await searchViaHtmlScrape(q);
-      return {
-        results,
-        mode: "scrape",
-        note: "SerpAPI failed or empty — used light HTML scrape.",
-      };
-    } catch {
-      return {
-        results: searchMockCatalog(q),
-        mode: "serpapi-fallback-mock",
-        note: "SerpAPI/scrape unavailable — mock catalog.",
-      };
+      // fall through
     }
   }
 
   try {
     const results = await searchViaHtmlScrape(q);
     return {
-      results,
+      results: mergeUnique(mock, results),
       mode: "scrape",
       note: "Best-effort Google Shopping HTML scrape (user-initiated).",
     };
   } catch {
-    return {
-      results: searchMockCatalog(q),
-      mode: "scrape-fallback-mock",
-      note: "Live scrape blocked or failed — using local mock catalog.",
-    };
+    // Google often blocks cloud IPs — fall through to Amazon marketplace search.
   }
+
+  try {
+    const results = await searchAmazonAsCatalog(q);
+    if (results.length || mock.length) {
+      return {
+        results: mergeUnique(mock, results),
+        mode: results.length ? "amazon-scrape" : "mock",
+        note: results.length
+          ? "Google Shopping unavailable — used Amazon search scrape (mock matches first)."
+          : "Live scrapes unavailable — mock catalog match.",
+      };
+    }
+  } catch {
+    // fall through to mock
+  }
+
+  return {
+    results: mock,
+    mode: mock.length ? "mock" : "scrape-fallback-mock",
+    note: mock.length
+      ? "Live scrapes unavailable — mock catalog match."
+      : "Live scrape blocked and no mock match.",
+  };
 }

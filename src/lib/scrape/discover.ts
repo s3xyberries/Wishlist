@@ -1,11 +1,11 @@
 import {
   candidatesToOffers,
-  genericDiscover,
   type OfferCandidate,
 } from "@/lib/adapters";
 import type { Offer, SearchResult } from "@/lib/types";
 import { discoverAmazonOffer } from "./amazon";
 import { discoverEbayOffer } from "./ebay";
+import { discoverGenericOffer } from "./official";
 
 export interface LiveDiscoverResponse {
   candidates: OfferCandidate[];
@@ -13,7 +13,7 @@ export interface LiveDiscoverResponse {
   modes: {
     amazon: string;
     ebay: string;
-    generic: "stub";
+    generic: string;
   };
   notes: string[];
 }
@@ -26,20 +26,20 @@ export async function discoverLiveOffers(
   product: SearchResult,
   productId?: string,
 ): Promise<LiveDiscoverResponse> {
-  const [amazon, ebay] = await Promise.all([
+  const [amazon, ebay, generic] = await Promise.all([
     discoverAmazonOffer(product),
     discoverEbayOffer(product),
+    discoverGenericOffer(product),
   ]);
-  const generic = genericDiscover(product);
-  const candidates = [amazon.candidate, ebay.candidate, generic];
-  const notes = [amazon.note, ebay.note, "Generic retailer remains a stub match."];
+  const candidates = [amazon.candidate, ebay.candidate, generic.candidate];
+  const notes = [amazon.note, ebay.note, generic.note];
 
   const payload: LiveDiscoverResponse = {
     candidates,
     modes: {
       amazon: amazon.mode,
       ebay: ebay.mode,
-      generic: "stub",
+      generic: generic.mode,
     },
     notes,
   };

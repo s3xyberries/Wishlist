@@ -106,12 +106,34 @@ export const MOCK_CATALOG: SearchResult[] = [
     rating: 4.7,
     reviewCount: 4890,
   },
+  {
+    id: "sr-bambu-h2s",
+    title: "Bambu Lab H2S 3D Printer",
+    brand: "Bambu Lab",
+    imageUrl:
+      "https://store.bblcdn.com/s7/default/0de3d0b45e7d43adbd9c39e8a7f098b1/H2S-compressed.jpg",
+    priceSnippet: 1399.0,
+    currency: "USD",
+    merchantHint: "Bambu Lab official store",
+    sourceHint: "shopping",
+    rating: 4.8,
+    reviewCount: 1200,
+  },
 ];
 
+function normalizeSearchTokens(query: string): string[] {
+  return query
+    .trim()
+    .toLowerCase()
+    .replace(/bambulabs/g, "bambu lab")
+    .replace(/bambu-lab/g, "bambu lab")
+    .split(/\s+/)
+    .filter(Boolean);
+}
+
 export function searchMockCatalog(query: string): SearchResult[] {
-  const q = query.trim().toLowerCase();
-  if (!q) return [];
-  const tokens = q.split(/\s+/).filter(Boolean);
+  const tokens = normalizeSearchTokens(query);
+  if (!tokens.length) return [];
   return MOCK_CATALOG.filter((item) => {
     const hay = `${item.title} ${item.brand ?? ""} ${item.merchantHint}`.toLowerCase();
     return tokens.every((t) => hay.includes(t));
