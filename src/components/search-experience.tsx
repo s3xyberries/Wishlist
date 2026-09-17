@@ -19,6 +19,7 @@ import {
 import { Input } from "@/components/ui/input";
 import { formatMoney } from "@/lib/format";
 import { useRegion } from "@/lib/region/context";
+import { fetchSearchApi } from "@/lib/search-api";
 import { useWishlistStore } from "@/lib/store";
 import type { SearchResult } from "@/lib/types";
 
@@ -46,6 +47,7 @@ export function SearchExperience() {
   const [searchNote, setSearchNote] = useState<string | null>(null);
   const [stale, setStale] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [lastRequestUrl, setLastRequestUrl] = useState<string | null>(null);
   const [selected, setSelected] = useState<CatalogSearchResult | null>(null);
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [pending, startTransition] = useTransition();
@@ -54,6 +56,7 @@ export function SearchExperience() {
     const q = value.trim();
     setSubmitted(q);
     setErrorMessage(null);
+    setLastRequestUrl(null);
     if (!q) {
       setResults([]);
       setStatus("idle");
@@ -64,98 +67,56 @@ export function SearchExperience() {
       return;
     }
     setStatus("loading");
-    try {
-      const params = new URLSearchParams({ q, region: regionId });
-      if (forceRefresh) params.set("refresh", "1");
-      // Absolute same-origin URL + Accept JSON so we never confuse a page shell for the API.
-      const url = new URL("/api/search", window.location.origin);
-      url.search = params.toString();
-      const res = await fetch(url.toString(), {
-        method: "GET",
-        cache: "no-store",
-        headers: {
-          Accept: "application/json",
-          "x-pricekeep-region": regionId,
-        },
+
+    // Shareable ?q= without a document GET or App Router remount (avoids double-fetch).
+    const shareUrl = `/?q=${encodeURIComponent(q)}`;
+    if (`${window.location.pathname}${window.location.search}` !== shareUrl) {
+      window.history.replaceState(null, "", shareUrl);
+    }
+
+    const result = await fetchSearchApi({
+      origin: window.location.origin,
+      q,
+      regionId,
+      forceRefresh,
+    });
+    setLastRequestUrl(result.requestUrl);
+
+    if (!result.ok) {
+      console.error("[Pricekeep search]", result.reason, result.requestUrl, {
+        status: result.status,
+        contentType: result.contentType,
+        preview: result.rawPreview,
       });
-      const contentType = res.headers.get("content-type") ?? "";
-      const rawText = await res.text();
-      let data: {
-        results?: CatalogSearchResult[];
-        mode?: string;
-        note?: string;
-        error?: string;
-        origin?: "catalog" | "scrape";
-        stale?: boolean;
-        catalogWarning?: string;
-      } = {};
-      const looksHtml =
-        /^\s*</.test(rawText) || contentType.includes("text/html");
-      try {
-        if (looksHtml) {
-          throw new Error("html");
-        }
-        data = rawText ? (JSON.parse(rawText) as typeof data) : {};
-      } catch {
-        setResults([]);
-        setSearchMode("error");
-        setSearchOrigin(null);
-        setSearchNote(null);
-        setStale(false);
-        setStatus("error");
-        setErrorMessage(
-          looksHtml
-            ? `Search expected JSON from /api/search but got an HTML page (HTTP ${res.status}). Hard-refresh (Ctrl+Shift+R), or unregister the service worker for this site, then try again. If it persists, delete .next and rebuild with run.bat.`
-            : `Search API returned HTTP ${res.status} (non-JSON). ${rawText.slice(0, 180) || "Empty body."}`,
-        );
-        return;
-      }
-
-      if (!res.ok) {
-        setResults([]);
-        setSearchMode("error");
-        setSearchOrigin(null);
-        setSearchNote(data.note ?? null);
-        setStale(false);
-        setStatus("error");
-        setErrorMessage(
-          data.error ||
-            data.note ||
-            `Search API failed (HTTP ${res.status}).`,
-        );
-        return;
-      }
-
-      setResults(data.results ?? []);
-      setSearchMode(data.mode ?? "scrape");
-      setSearchOrigin(
-        data.origin ?? (data.mode === "catalog" ? "catalog" : "scrape"),
-      );
-      setSearchNote(
-        [data.note, data.catalogWarning].filter(Boolean).join(" ") || null,
-      );
-      setStale(Boolean(data.stale));
-      if (data.mode === "error" && !(data.results ?? []).length) {
-        setStatus("error");
-        setErrorMessage(
-          data.error || data.note || "Live search failed. Try again.",
-        );
-        return;
-      }
-      setStatus((data.results ?? []).length ? "ready" : "empty");
-    } catch (err) {
       setResults([]);
       setSearchMode("error");
       setSearchOrigin(null);
       setSearchNote(null);
       setStale(false);
       setStatus("error");
-      setErrorMessage(
-        err instanceof Error
-          ? `Could not reach /api/search: ${err.message}`
-          : "Could not reach /api/search. Is the Next.js server running?",
-      );
+      setErrorMessage(result.message);
+      return;
     }
+
+    const data = result.data;
+    const hits = (data.results ?? []) as CatalogSearchResult[];
+    setResults(hits);
+    setSearchMode(data.mode ?? "scrape");
+    setSearchOrigin(
+      data.origin ?? (data.mode === "catalog" ? "catalog" : "scrape"),
+    );
+    setSearchNote(
+      [data.note, data.catalogWarning].filter(Boolean).join(" ") || null,
+    );
+    setStale(Boolean(data.stale));
+    if (data.mode === "error" && !hits.length) {
+      setStatus("error");
+      setErrorMessage(
+        data.error || data.note || "Live search failed. Try again.",
+      );
+      return;
+    }
+    setStatus(hits.length ? "ready" : "empty");
   }
 
   useEffect(() => {
@@ -164,6 +125,7 @@ export function SearchExperience() {
       void runSearch(initialQ);
     }, 0);
     return () => window.clearTimeout(id);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [initialQ, regionId]);
 
   // Re-run current query when region changes
@@ -176,14 +138,9 @@ export function SearchExperience() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [regionId]);
 
-  function onSubmit(e: React.FormEvent) {
-    e.preventDefault();
-    e.stopPropagation();
-    void runSearch(query);
-  }
-
   function onSearchClick(e: React.MouseEvent) {
     e.preventDefault();
+    e.stopPropagation();
     void runSearch(query);
   }
 
@@ -219,28 +176,30 @@ export function SearchExperience() {
             reuse them. Fresh scrapes only run when the catalog is empty or stale
             — or when you force a refresh.
           </p>
-          <form
-            onSubmit={onSubmit}
+          {/*
+            Not a <form method="get"> — native GET would navigate to /?q=… (HTML
+            document). Search must only use fetch → /api/search (JSON).
+          */}
+          <div
+            role="search"
             className="flex flex-col gap-2 sm:flex-row"
-            action="#"
-            method="get"
+            onKeyDown={(e) => {
+              if (e.key === "Enter") {
+                e.preventDefault();
+                void runSearch(query);
+              }
+            }}
           >
             <div className="relative flex-1">
               <Search className="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-muted-foreground" />
               <Input
                 value={query}
                 onChange={(e) => setQuery(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === "Enter") {
-                    e.preventDefault();
-                    void runSearch(query);
-                  }
-                }}
                 placeholder="Try “bambu lab h2s”, “sony headphones”, “kindle”"
                 className="h-11 pl-9"
                 aria-label="Search products"
-                name="q"
                 autoComplete="off"
+                enterKeyHint="search"
               />
             </div>
             <Button
@@ -251,7 +210,7 @@ export function SearchExperience() {
             >
               Search
             </Button>
-          </form>
+          </div>
           {searchNote && status !== "idle" ? (
             <div className="flex flex-wrap items-center gap-2">
               {fromCatalog ? (
@@ -306,7 +265,14 @@ export function SearchExperience() {
         {status === "error" && errorMessage ? (
           <Alert variant="destructive">
             <AlertTitle>Search failed</AlertTitle>
-            <AlertDescription>{errorMessage}</AlertDescription>
+            <AlertDescription>
+              <span className="block">{errorMessage}</span>
+              {lastRequestUrl ? (
+                <span className="mt-2 block break-all font-mono text-[11px] opacity-90">
+                  Request: {lastRequestUrl}
+                </span>
+              ) : null}
+            </AlertDescription>
           </Alert>
         ) : null}
 
