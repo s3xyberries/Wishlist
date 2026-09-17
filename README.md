@@ -15,9 +15,11 @@ Canonical GitHub repo: **https://github.com/s3xyberries/Wishlist**
 ### Windows (double-click)
 
 1. Install [Node.js 20+](https://nodejs.org) (22+ recommended).
-2. Double-click **`run.bat`** in the project folder (or right-click **`run.ps1`** → Run with PowerShell).
-3. The first launch runs `npm install` (if needed) and `npm run build`, then starts the app and opens [http://127.0.0.1:43127](http://127.0.0.1:43127).
+2. Double-click **`run.bat`** in the project folder (or right-click **`run.ps1`** → Run with PowerShell). Paths with spaces (e.g. `Desktop\Price Checker\Wishlist`) are fine — the launcher `cd`s into its own folder.
+3. First launch runs `npm install` (if needed) and **`npm run build`**, and only starts after `.next\BUILD_ID` exists. Then it opens [http://127.0.0.1:43127](http://127.0.0.1:43127).
 4. Leave the console window open while you use Pricekeep. Close it to stop the server. On failure the window stays open so you can read the error (`pause` / Enter).
+5. If you see **“Could not find a production build”**, delete the `.next` folder in the project and double-click `run.bat` again.
+6. If Next warns that it ignored `package-lock.json` because of a file under `C:\Users\<you>\`, delete that **stray** `C:\Users\<you>\package-lock.json` (not the one inside this repo). `outputFileTracingRoot` in `next.config.ts` also pins the app to this project folder.
 
 macOS/Linux: `chmod +x run.sh && ./run.sh` (same install → build → start flow).
 

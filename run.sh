@@ -1,11 +1,13 @@
 #!/usr/bin/env bash
 # Pricekeep launcher for macOS/Linux (parity with run.bat).
+# Always runs from this script's directory (safe with spaces in the path).
 set -euo pipefail
-cd "$(dirname "$0")"
+cd "$(cd "$(dirname "$0")" && pwd)"
 
 echo
 echo " Pricekeep launcher"
 echo " =================="
+echo " Project: $PWD"
 echo
 
 if ! command -v node >/dev/null 2>&1; then
@@ -19,20 +21,31 @@ fi
 
 echo "Node $(node -v)"
 
+if [[ ! -f package.json ]]; then
+  echo "package.json not found in $PWD. Run this script from inside the Wishlist repo folder."
+  exit 1
+fi
+
 if [[ ! -d node_modules ]]; then
   echo
   echo "node_modules missing — running npm install..."
   npm install
 fi
 
-if [[ ! -d .next ]]; then
+if [[ ! -f .next/BUILD_ID ]]; then
   echo
-  echo "No production build yet — running npm run build..."
+  echo "Production build missing or incomplete — running npm run build..."
+  rm -rf .next
   npm run build
 fi
 
+if [[ ! -f .next/BUILD_ID ]]; then
+  echo "Build finished but .next/BUILD_ID is still missing. App was not started."
+  exit 1
+fi
+
 echo
-echo "Starting Pricekeep at http://127.0.0.1:43127"
+echo "Build OK. Starting Pricekeep at http://127.0.0.1:43127"
 echo "Keep this terminal open while you use the app. Ctrl+C to stop."
 echo
 
