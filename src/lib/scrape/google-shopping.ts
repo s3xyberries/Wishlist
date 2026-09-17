@@ -1,9 +1,16 @@
 import * as cheerio from "cheerio";
 import { searchAmazonAsCatalog } from "./amazon";
 import { fetchHtml, parseMoney, ScrapeError } from "./http";
+import { searchOfficialStores } from "./official";
 import type { SearchResult } from "@/lib/types";
 
-export type SearchMode = "serpapi" | "scrape" | "amazon-scrape" | "empty" | "error";
+export type SearchMode =
+  | "serpapi"
+  | "scrape"
+  | "amazon-scrape"
+  | "official-scrape"
+  | "empty"
+  | "error";
 
 export interface SearchResponse {
   results: SearchResult[];
@@ -193,6 +200,19 @@ export async function searchProducts(query: string): Promise<SearchResponse> {
         results,
         mode: "amazon-scrape",
         note: "Google Shopping unavailable — Amazon search scrape.",
+      };
+    }
+  } catch {
+    // fall through
+  }
+
+  try {
+    const results = await searchOfficialStores(q);
+    if (results.length) {
+      return {
+        results,
+        mode: "official-scrape",
+        note: "Marketplace search blocked — live official brand store scrape.",
       };
     }
   } catch {

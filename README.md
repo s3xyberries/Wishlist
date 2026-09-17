@@ -22,7 +22,7 @@ npm run lint
 
 ## What works now
 
-- Product search via `/api/search`: SerpAPI (if key) → Google Shopping HTML scrape → Amazon search scrape (no mock catalog)
+- Product search via `/api/search`: SerpAPI (if key) → Google Shopping HTML scrape → Amazon search scrape → mapped official brand PDPs (no mock catalog)
 - Confirm / intercept step before adding to the wishlist
 - On track: `/api/discover` scrapes Amazon + eBay (or eBay Browse API) and mapped official PDPs — live offers only
 - Wishlist with notify toggle and remove
@@ -39,10 +39,10 @@ Live HTML fetches are **user-initiated only** (search, track/discover, manual pr
 
 | Piece | Status |
 |-------|--------|
-| Google Shopping | SerpAPI if `SERPAPI_API_KEY`; else Google HTML; else Amazon search scrape |
+| Google Shopping | SerpAPI if `SERPAPI_API_KEY`; else Google HTML; else Amazon search scrape; else mapped official PDPs |
 | Amazon offers / prices | Light search/product HTML with title scoring (avoids accessory false matches) |
 | eBay offers / prices | Browse API if credentials; else light HTML (often 403 from cloud IPs) |
-| Official / generic | Mapped official PDPs (e.g. Bambu Lab store) scraped via JSON-LD |
+| Official / generic | Mapped official PDPs (e.g. Bambu Lab store) scraped via JSON-LD — also used as search fallback |
 | Push / email alerts | In-app feed only |
 
 Wishlist state persists in `localStorage` (`pricekeep-state-v3-scrape-only`).

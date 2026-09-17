@@ -149,7 +149,9 @@ export function SearchExperience() {
           {searchNote && status !== "idle" ? (
             <p className="text-xs text-muted-foreground">
               {searchNote}
-              {searchMode === "scrape" || searchMode === "amazon-scrape" ? (
+              {searchMode === "scrape" ||
+              searchMode === "amazon-scrape" ||
+              searchMode === "official-scrape" ? (
                 <>
                   {" "}
                   Optional:{" "}

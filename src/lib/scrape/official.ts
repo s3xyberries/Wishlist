@@ -9,18 +9,96 @@ export interface DiscoverResult {
   note: string;
 }
 
+/** Known brand PDPs we can scrape when marketplace search is blocked. */
+const OFFICIAL_PRODUCTS: Array<{
+  id: string;
+  brand: string;
+  match: RegExp;
+  url: string;
+}> = [
+  {
+    id: "bambu-h2s",
+    brand: "Bambu Lab",
+    match: /bambu.*\bh2s\b|\bh2s\b.*bambu|\bh2s\b.*3d\s*printer/i,
+    url: "https://us.store.bambulab.com/products/h2s",
+  },
+  {
+    id: "bambu-h2d",
+    brand: "Bambu Lab",
+    match: /bambu.*\bh2d\b|\bh2d\b.*bambu/i,
+    url: "https://us.store.bambulab.com/products/h2d",
+  },
+  {
+    id: "bambu-x1c",
+    brand: "Bambu Lab",
+    match: /bambu.*\bx1[\s-]?c(arbon)?\b|\bx1[\s-]?carbon\b/i,
+    url: "https://us.store.bambulab.com/products/x1-carbon",
+  },
+];
+
 function officialUrlFor(product: SearchResult): string | null {
   const hay = `${product.title} ${product.brand ?? ""}`.toLowerCase();
-  if (/bambu/.test(hay) && /\bh2s\b/.test(hay)) {
-    return "https://us.store.bambulab.com/products/h2s";
+  const hit = OFFICIAL_PRODUCTS.find((p) => p.match.test(hay));
+  return hit?.url ?? null;
+}
+
+async function scrapeOfficialPdp(
+  entry: (typeof OFFICIAL_PRODUCTS)[number],
+): Promise<SearchResult | null> {
+  const { html } = await fetchHtml(entry.url, {
+    timeoutMs: 12_000,
+    minIntervalMs: 2_000,
+  });
+  if (html.length < 2_000 || /just a moment|cf-browser-verification/i.test(html)) {
+    return null;
   }
-  if (/bambu/.test(hay) && /\bh2d\b/.test(hay)) {
-    return "https://us.store.bambulab.com/products/h2d";
-  }
-  if (/bambu/.test(hay) && /\bx1c\b|\bx1-carbon\b/.test(hay)) {
-    return "https://us.store.bambulab.com/products/x1-carbon";
-  }
-  return null;
+  const ld = parseJsonLdProduct(html);
+  const $ = cheerio.load(html);
+  const ogPrice = parseMoney(
+    $('meta[property="product:price:amount"]').attr("content"),
+  );
+  const price = ld?.price && ld.price > 50 ? ld.price : ogPrice;
+  if (price == null) return null;
+  const title =
+    ld?.name ||
+    $('meta[property="og:title"]').attr("content")?.trim() ||
+    `${entry.brand} product`;
+  const image =
+    ld?.image ||
+    $('meta[property="og:image"]').attr("content") ||
+    "https://images.unsplash.com/photo-1472851294608-062f824d29cc?auto=format&fit=crop&w=400&h=400&q=80";
+
+  return {
+    id: `official-${entry.id}`,
+    title,
+    brand: entry.brand,
+    imageUrl: image,
+    priceSnippet: price,
+    currency: ld?.currency || "USD",
+    merchantHint: `${entry.brand} official store`,
+    sourceHint: "shopping",
+  };
+}
+
+/** Live-scrape mapped official brand stores for the query. */
+export async function searchOfficialStores(
+  query: string,
+): Promise<SearchResult[]> {
+  const q = query.trim();
+  if (!q) return [];
+  const matches = OFFICIAL_PRODUCTS.filter((p) => p.match.test(q));
+  if (!matches.length) return [];
+
+  const settled = await Promise.all(
+    matches.map(async (entry) => {
+      try {
+        return await scrapeOfficialPdp(entry);
+      } catch {
+        return null;
+      }
+    }),
+  );
+  return settled.filter((r): r is SearchResult => r != null);
 }
 
 function parseJsonLdProduct(
