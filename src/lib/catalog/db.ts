@@ -1,4 +1,4 @@
-import { DatabaseSync } from "node:sqlite";
+import Database from "better-sqlite3";
 import { mkdirSync, existsSync, readFileSync, renameSync } from "node:fs";
 import path from "node:path";
 
@@ -6,9 +6,23 @@ const DATA_DIR = path.join(process.cwd(), ".data");
 export const CATALOG_DB_PATH = path.join(DATA_DIR, "pricekeep.sqlite");
 const LEGACY_JSON_PATH = path.join(DATA_DIR, "shared-catalog.json");
 
-let dbSingleton: DatabaseSync | null = null;
+/** Recommended Node for native better-sqlite3 builds (Windows/macOS/Linux). */
+export const MIN_NODE_VERSION = "20.0.0";
 
-function ensureSchema(db: DatabaseSync) {
+export class CatalogUnavailableError extends Error {
+  code = "CATALOG_UNAVAILABLE" as const;
+  constructor(message: string) {
+    super(message);
+    this.name = "CatalogUnavailableError";
+  }
+}
+
+type CatalogDatabase = Database.Database;
+
+let dbSingleton: CatalogDatabase | null = null;
+let loadError: CatalogUnavailableError | null = null;
+
+function ensureSchema(db: CatalogDatabase) {
   db.exec(`
     PRAGMA journal_mode = WAL;
     PRAGMA foreign_keys = ON;
@@ -125,7 +139,7 @@ type LegacyCatalogFile = {
   >;
 };
 
-function migrateLegacyJson(db: DatabaseSync) {
+function migrateLegacyJson(db: CatalogDatabase) {
   if (!existsSync(LEGACY_JSON_PATH)) return;
   let raw: string;
   try {
@@ -145,7 +159,6 @@ function migrateLegacyJson(db: DatabaseSync) {
     n: number;
   };
   if (count.n > 0) {
-    // Already have SQLite data — archive JSON and stop
     try {
       renameSync(LEGACY_JSON_PATH, `${LEGACY_JSON_PATH}.migrated`);
     } catch {
@@ -154,7 +167,7 @@ function migrateLegacyJson(db: DatabaseSync) {
     return;
   }
 
-  const region = "us"; // legacy JSON was US-oriented scrapes
+  const region = "us";
   const insertProduct = db.prepare(`
     INSERT OR REPLACE INTO catalog_products (
       id, region, fingerprint, title, brand, image_url, price_snippet, currency,
@@ -170,8 +183,7 @@ function migrateLegacyJson(db: DatabaseSync) {
     VALUES (?, ?, ?, ?)
   `);
 
-  db.exec("BEGIN");
-  try {
+  const tx = db.transaction(() => {
     for (const p of Object.values(parsed.products ?? {})) {
       insertProduct.run(
         p.id,
@@ -197,25 +209,56 @@ function migrateLegacyJson(db: DatabaseSync) {
         insertLink.run(region, q.queryKey, pid, i);
       });
     }
-    db.exec("COMMIT");
+  });
+
+  try {
+    tx();
     try {
       renameSync(LEGACY_JSON_PATH, `${LEGACY_JSON_PATH}.migrated`);
     } catch {
       // ignore
     }
   } catch {
-    db.exec("ROLLBACK");
+    // leave JSON in place for a later retry
   }
 }
 
-export function getDb(): DatabaseSync {
+export function getDb(): CatalogDatabase {
   if (dbSingleton) return dbSingleton;
-  mkdirSync(DATA_DIR, { recursive: true });
-  const db = new DatabaseSync(CATALOG_DB_PATH);
-  ensureSchema(db);
-  migrateLegacyJson(db);
-  dbSingleton = db;
-  return db;
+  if (loadError) throw loadError;
+
+  try {
+    mkdirSync(DATA_DIR, { recursive: true });
+    const db = new Database(CATALOG_DB_PATH);
+    ensureSchema(db);
+    migrateLegacyJson(db);
+    dbSingleton = db;
+    return db;
+  } catch (err) {
+    const detail = err instanceof Error ? err.message : String(err);
+    loadError = new CatalogUnavailableError(
+      `Shared catalog failed to open (${detail}). Ensure Node.js >= ${MIN_NODE_VERSION}, run \`npm install\` (rebuilds better-sqlite3), and that .data/ is writable.`,
+    );
+    throw loadError;
+  }
+}
+
+export function isCatalogAvailable(): boolean {
+  try {
+    getDb();
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+export function catalogAvailabilityNote(): string | null {
+  try {
+    getDb();
+    return null;
+  } catch (err) {
+    return err instanceof Error ? err.message : String(err);
+  }
 }
 
 export function catalogDbPath(): string {

@@ -70,33 +70,75 @@ export function SearchExperience() {
       const res = await fetch(`/api/search?${params.toString()}`, {
         headers: { "x-pricekeep-region": regionId },
       });
-      if (!res.ok) throw new Error("Search request failed");
-      const data = (await res.json()) as {
-        results: CatalogSearchResult[];
-        mode: string;
+      const rawText = await res.text();
+      let data: {
+        results?: CatalogSearchResult[];
+        mode?: string;
         note?: string;
+        error?: string;
         origin?: "catalog" | "scrape";
         stale?: boolean;
-      };
-      setResults(data.results);
-      setSearchMode(data.mode ?? "scrape");
-      setSearchOrigin(data.origin ?? (data.mode === "catalog" ? "catalog" : "scrape"));
-      setSearchNote(data.note ?? null);
-      setStale(Boolean(data.stale));
-      if (data.mode === "error" && data.results.length === 0) {
+        catalogWarning?: string;
+      } = {};
+      try {
+        data = rawText ? (JSON.parse(rawText) as typeof data) : {};
+      } catch {
+        setResults([]);
+        setSearchMode("error");
+        setSearchOrigin(null);
+        setSearchNote(null);
+        setStale(false);
         setStatus("error");
-        setErrorMessage(data.note ?? "Live search failed. Try again.");
+        setErrorMessage(
+          `Search API returned HTTP ${res.status} (non-JSON). ${rawText.slice(0, 180) || "Empty body."}`,
+        );
         return;
       }
-      setStatus(data.results.length ? "ready" : "empty");
-    } catch {
+
+      if (!res.ok) {
+        setResults([]);
+        setSearchMode("error");
+        setSearchOrigin(null);
+        setSearchNote(data.note ?? null);
+        setStale(false);
+        setStatus("error");
+        setErrorMessage(
+          data.error ||
+            data.note ||
+            `Search API failed (HTTP ${res.status}).`,
+        );
+        return;
+      }
+
+      setResults(data.results ?? []);
+      setSearchMode(data.mode ?? "scrape");
+      setSearchOrigin(
+        data.origin ?? (data.mode === "catalog" ? "catalog" : "scrape"),
+      );
+      setSearchNote(
+        [data.note, data.catalogWarning].filter(Boolean).join(" ") || null,
+      );
+      setStale(Boolean(data.stale));
+      if (data.mode === "error" && !(data.results ?? []).length) {
+        setStatus("error");
+        setErrorMessage(
+          data.error || data.note || "Live search failed. Try again.",
+        );
+        return;
+      }
+      setStatus((data.results ?? []).length ? "ready" : "empty");
+    } catch (err) {
       setResults([]);
       setSearchMode("error");
       setSearchOrigin(null);
       setSearchNote(null);
       setStale(false);
       setStatus("error");
-      setErrorMessage("Could not reach the scrape API. Try again in a moment.");
+      setErrorMessage(
+        err instanceof Error
+          ? `Could not reach /api/search: ${err.message}`
+          : "Could not reach /api/search. Is the Next.js server running?",
+      );
     }
   }
 

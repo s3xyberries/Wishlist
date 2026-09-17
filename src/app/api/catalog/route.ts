@@ -1,10 +1,11 @@
 import { NextResponse } from "next/server";
-import { catalogDbPath } from "@/lib/catalog/db";
+import { catalogDbPath, CatalogUnavailableError } from "@/lib/catalog/db";
 import { listCatalog } from "@/lib/catalog/store";
 import { CATALOG_TTL_MS } from "@/lib/catalog/types";
 import { regionFromRequest } from "@/lib/region/server";
 
 export const dynamic = "force-dynamic";
+export const runtime = "nodejs";
 
 export async function GET(request: Request) {
   const { searchParams } = new URL(request.url);
@@ -24,12 +25,19 @@ export async function GET(request: Request) {
       ttlMs: CATALOG_TTL_MS,
       currency: region.currency,
       dbPath: catalogDbPath(),
+      driver: "better-sqlite3",
       note:
         payload.totalProducts === 0
           ? `${region.shortLabel} shared catalog is empty. Search a product to scrape and save it.`
           : `${region.shortLabel} catalog has ${payload.totalProducts} product${payload.totalProducts === 1 ? "" : "s"} (${region.currency}). Fresh for ${Math.round(CATALOG_TTL_MS / 3_600_000)} hours.`,
     });
-  } catch {
+  } catch (err) {
+    const message =
+      err instanceof CatalogUnavailableError
+        ? err.message
+        : err instanceof Error
+          ? err.message
+          : "Could not read shared catalog.";
     return NextResponse.json(
       {
         products: [],
@@ -39,9 +47,11 @@ export async function GET(request: Request) {
         region: region.id,
         currency: region.currency,
         ttlMs: CATALOG_TTL_MS,
-        note: "Could not read shared catalog.",
+        driver: "better-sqlite3",
+        error: message,
+        note: message,
       },
-      { status: 500 },
+      { status: err instanceof CatalogUnavailableError ? 503 : 500 },
     );
   }
 }

@@ -7,11 +7,15 @@
     "build": "next build",
     "start": "next start --port 43127",
     "lint": "eslint",
-    "price-check:daily": "tsx --experimental-sqlite scripts/daily-price-check.ts",
-    "scheduler": "tsx --experimental-sqlite scripts/scheduler.ts"
+    "price-check:daily": "tsx scripts/daily-price-check.ts",
+    "scheduler": "tsx scripts/scheduler.ts"
+  },
+  "engines": {
+    "node": ">=20"
   },
   "dependencies": {
     "@base-ui/react": "^1.8.0",
+    "better-sqlite3": "^13.0.3",
     "cheerio": "^1.2.0",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
@@ -27,6 +31,7 @@
   },
   "devDependencies": {
     "@tailwindcss/postcss": "^4",
+    "@types/better-sqlite3": "^9.6.0",
     "@types/node": "^20",
     "@types/node-cron": "^3.0.11",
     "@types/react": "^19",

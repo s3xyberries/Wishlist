@@ -4,9 +4,16 @@ Wishlist and price-tracking web app (PWA-ready). Defaults to **Australia (AUD)**
 
 Canonical GitHub repo: **https://github.com/s3xyberries/Wishlist**
 
+## Requirements
+
+- **Node.js >= 20** (22+ recommended). `engines.node` is `>=20`.
+- Shared catalog uses **`better-sqlite3`** (portable native driver). We do **not** use Node’s built-in `node:sqlite` — that module is missing on many Windows builds even on Node 22.
+- On Windows, run `npm install` from a normal terminal so the `better-sqlite3` prebuild (or compile) succeeds. If install fails, install [Visual Studio Build Tools](https://visualstudio.microsoft.com/visual-cpp-build-tools/) (Desktop C++ workload) and retry `npm install`.
+
 ## Run locally
 
 ```bash
+git pull
 npm install
 npm run dev
 ```
@@ -22,6 +29,16 @@ npm run price-check:daily    # one-shot recheck of tracked offers
 npm run scheduler            # local daily cron (06:00 + boot run)
 ```
 
+### Search troubleshooting
+
+If search shows an error, the UI now surfaces the real `/api/search` HTTP status and JSON `error`/`note` (not a vague “could not reach” message).
+
+1. Confirm the server is up on port **43127** (`npm run dev` or `npm start`).
+2. Hit [http://127.0.0.1:43127/api/health](http://127.0.0.1:43127/api/health) — should report `catalog.driver: "better-sqlite3"` and `catalog.available: true`.
+3. Hit [http://127.0.0.1:43127/api/search?q=bambu%20lab%20h2s&region=au](http://127.0.0.1:43127/api/search?q=bambu%20lab%20h2s&region=au) directly in the browser.
+4. If `better-sqlite3` failed to build: delete `node_modules`, run `npm install` again, then restart the server.
+5. Use `http://127.0.0.1:43127` (not a different host/port) so relative `/api/search` matches the Next process.
+
 ## What works now
 
 - **Region switcher (AU default / US)** — currency, Google `gl`, Amazon/eBay hosts, and official PDPs follow the active region
@@ -36,9 +53,9 @@ npm run scheduler            # local daily cron (06:00 + boot run)
 - Daily scheduler: `npm run price-check:daily` or `GET /api/scheduler/run`
 - In-app notifications feed (localStorage) + PWA shell
 
-## Shared catalog (SQLite)
+## Shared catalog (SQLite via better-sqlite3)
 
-Successful scrapes land in **`.data/pricekeep.sqlite`** (not JSON). Legacy `.data/shared-catalog.json` is migrated once on startup. Catalog rows are keyed by **region**; TTL reuse is per-region. UI badges show **From catalog** vs **Fresh scrape**.
+Successful scrapes land in **`.data/pricekeep.sqlite`**. Driver: **`better-sqlite3`** (not `node:sqlite`). Legacy `.data/shared-catalog.json` is migrated once on startup. Catalog rows are keyed by **region**; TTL reuse is per-region. UI badges show **From catalog** vs **Fresh scrape**. If the catalog cannot open, search still attempts a live scrape and shows a warning.
 
 ## Scrape policy (important)
 
@@ -74,7 +91,7 @@ PRICE_CHECK_CRON=0 6 * * * # for npm run scheduler
 
 ## Stack
 
-Next.js (App Router) · TypeScript · Tailwind CSS · shadcn/ui · cheerio · `node:sqlite` · node-cron (dev scheduler) · localStorage
+Next.js (App Router) · TypeScript · Tailwind CSS · shadcn/ui · cheerio · **better-sqlite3** · node-cron (dev scheduler) · localStorage
 
 ## Migration note
 
