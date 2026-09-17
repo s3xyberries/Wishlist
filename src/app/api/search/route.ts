@@ -1,10 +1,22 @@
 import { NextResponse } from "next/server";
-import { searchWithCatalog } from "@/lib/catalog/search";
 import { CatalogUnavailableError } from "@/lib/catalog/db";
 import { regionFromRequest } from "@/lib/region/server";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
+
+function json(
+  body: Record<string, unknown>,
+  init?: { status?: number },
+) {
+  return NextResponse.json(body, {
+    status: init?.status ?? 200,
+    headers: {
+      "Cache-Control": "no-store",
+      "Content-Type": "application/json; charset=utf-8",
+    },
+  });
+}
 
 function errorPayload(
   region: { id: string; currency: string },
@@ -17,7 +29,7 @@ function errorPayload(
       : err instanceof Error
         ? err.message
         : "Search scrape failed unexpectedly.";
-  return NextResponse.json(
+  return json(
     {
       results: [],
       mode: "error",
@@ -48,7 +60,7 @@ export async function GET(request: Request) {
     searchParams.get("force") === "1";
 
   if (!q.trim()) {
-    return NextResponse.json({
+    return json({
       results: [],
       mode: "empty",
       note: "Empty query.",
@@ -59,8 +71,10 @@ export async function GET(request: Request) {
   }
 
   try {
+    // Dynamic import so a catalog/native-module failure still returns JSON, not an HTML error page.
+    const { searchWithCatalog } = await import("@/lib/catalog/search");
     const payload = await searchWithCatalog(q, region, { forceRefresh });
-    return NextResponse.json(payload);
+    return json(payload as unknown as Record<string, unknown>);
   } catch (err) {
     return errorPayload(region, err, 500);
   }

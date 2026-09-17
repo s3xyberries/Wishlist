@@ -48,9 +48,10 @@ If search shows an error, the UI now surfaces the real `/api/search` HTTP status
 
 1. Confirm the server is up on port **43127** (`npm run dev` or `npm start`).
 2. Hit [http://127.0.0.1:43127/api/health](http://127.0.0.1:43127/api/health) — should report `catalog.driver: "better-sqlite3"` and `catalog.available: true`.
-3. Hit [http://127.0.0.1:43127/api/search?q=bambu%20lab%20h2s&region=au](http://127.0.0.1:43127/api/search?q=bambu%20lab%20h2s&region=au) directly in the browser.
-4. If `better-sqlite3` failed to build: delete `node_modules`, run `npm install` again, then restart the server.
-5. Use `http://127.0.0.1:43127` (not a different host/port) so relative `/api/search` matches the Next process.
+3. Hit [http://127.0.0.1:43127/api/search?q=bambu%20lab%20h2s&region=au](http://127.0.0.1:43127/api/search?q=bambu%20lab%20h2s&region=au) directly in the browser — you must see **JSON**, not an HTML page.
+4. If the UI says search returned **HTML** with HTTP 200: hard-refresh (Ctrl+Shift+R). An older service worker used to fall back to the app shell for failed `/api/*` requests; current `sw.js` skips `/api/` entirely. You can also unregister the service worker for `127.0.0.1:43127` in Chrome DevTools → Application → Service Workers.
+5. If `better-sqlite3` failed to build: delete `node_modules`, run `npm install` again, then restart the server (`npm run build` uses **webpack**).
+6. Use `http://127.0.0.1:43127` (not a different host/port) so relative `/api/search` matches the Next process.
 
 ## What works now
 

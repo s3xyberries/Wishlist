@@ -67,9 +67,18 @@ export function SearchExperience() {
     try {
       const params = new URLSearchParams({ q, region: regionId });
       if (forceRefresh) params.set("refresh", "1");
-      const res = await fetch(`/api/search?${params.toString()}`, {
-        headers: { "x-pricekeep-region": regionId },
+      // Absolute same-origin URL + Accept JSON so we never confuse a page shell for the API.
+      const url = new URL("/api/search", window.location.origin);
+      url.search = params.toString();
+      const res = await fetch(url.toString(), {
+        method: "GET",
+        cache: "no-store",
+        headers: {
+          Accept: "application/json",
+          "x-pricekeep-region": regionId,
+        },
       });
+      const contentType = res.headers.get("content-type") ?? "";
       const rawText = await res.text();
       let data: {
         results?: CatalogSearchResult[];
@@ -80,7 +89,12 @@ export function SearchExperience() {
         stale?: boolean;
         catalogWarning?: string;
       } = {};
+      const looksHtml =
+        /^\s*</.test(rawText) || contentType.includes("text/html");
       try {
+        if (looksHtml) {
+          throw new Error("html");
+        }
         data = rawText ? (JSON.parse(rawText) as typeof data) : {};
       } catch {
         setResults([]);
@@ -90,7 +104,9 @@ export function SearchExperience() {
         setStale(false);
         setStatus("error");
         setErrorMessage(
-          `Search API returned HTTP ${res.status} (non-JSON). ${rawText.slice(0, 180) || "Empty body."}`,
+          looksHtml
+            ? `Search expected JSON from /api/search but got an HTML page (HTTP ${res.status}). Hard-refresh (Ctrl+Shift+R), or unregister the service worker for this site, then try again. If it persists, delete .next and rebuild with run.bat.`
+            : `Search API returned HTTP ${res.status} (non-JSON). ${rawText.slice(0, 180) || "Empty body."}`,
         );
         return;
       }
