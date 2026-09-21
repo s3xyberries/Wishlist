@@ -1,36 +1,41 @@
 "use client";
 
 import { useEffect } from "react";
-import {
-  ensureLoopbackServiceWorkersCleared,
-  isLoopbackHost,
-} from "@/lib/loopback-sw";
+import { isLoopbackHost, nukeServiceWorkers } from "@/lib/loopback-sw";
 
 /**
- * PWA shell SW is for deployed hosts only.
- * On loopback (run.bat / local npm start), unregister any SW — Firefox often
- * surfaces SW fetch failures as "NetworkError when attempting to fetch resource"
- * for /api/search.
+ * Local/dev (loopback): NEVER register a service worker — only nuke existing ones.
+ * Non-loopback production: register the v4 kill-switch sw.js once so sticky
+ * older workers self-unregister, then do not keep a controlling SW.
  */
 export function ServiceWorkerRegister() {
   useEffect(() => {
     void (async () => {
       try {
+        if (!("serviceWorker" in navigator)) return;
+
+        // Always clear first.
+        await nukeServiceWorkers();
+
         if (isLoopbackHost(window.location.hostname)) {
-          await ensureLoopbackServiceWorkersCleared();
+          // Local run.bat / npm start — leave SW disabled permanently.
           return;
         }
 
         if (process.env.NODE_ENV !== "production") return;
-        if (!("serviceWorker" in navigator)) return;
 
+        // One-shot: install kill-switch SW so any sticky v1–v3 dies, then nuke again.
         const reg = await navigator.serviceWorker.register("/sw.js", {
           scope: "/",
           updateViaCache: "none",
         });
         await reg.update();
+        // Give activate a tick, then unregister again so we do not stay controlled.
+        window.setTimeout(() => {
+          void nukeServiceWorkers();
+        }, 1500);
       } catch {
-        // Ignore registration failures in local/dev edge cases
+        // Ignore
       }
     })();
   }, []);

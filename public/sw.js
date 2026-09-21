@@ -1,66 +1,38 @@
-/* Pricekeep offline shell — navigations only; never intercept /api/* */
-const CACHE = "pricekeep-shell-v3";
-const SHELL = ["/", "/wishlist", "/notifications", "/catalog", "/manifest.webmanifest"];
+/* Pricekeep SW v4 — kill-switch for sticky local workers.
+ * On activate: clear caches and unregister this worker so /api/* is never
+ * intercepted. Deployed hosts that still want a shell can re-register a
+ * future version; loopback never registers (see sw-register.tsx).
+ */
+const CACHE = "pricekeep-shell-v4";
 
 self.addEventListener("install", (event) => {
-  event.waitUntil(
-    caches
-      .open(CACHE)
-      .then((cache) => cache.addAll(SHELL))
-      .then(() => self.skipWaiting()),
-  );
+  event.waitUntil(self.skipWaiting());
 });
 
 self.addEventListener("activate", (event) => {
   event.waitUntil(
-    caches
-      .keys()
-      .then((keys) =>
-        Promise.all(keys.filter((k) => k !== CACHE).map((k) => caches.delete(k))),
-      )
-      .then(() => self.clients.claim()),
+    (async () => {
+      try {
+        const keys = await caches.keys();
+        await Promise.all(
+          keys
+            .filter((k) => k.startsWith("pricekeep-shell"))
+            .map((k) => caches.delete(k)),
+        );
+      } catch {
+        // ignore
+      }
+      try {
+        await self.registration.unregister();
+      } catch {
+        // ignore
+      }
+      await self.clients.claim();
+    })(),
   );
 });
 
-function shouldHandle(request) {
-  if (request.method !== "GET") return false;
-  let url;
-  try {
-    url = new URL(request.url);
-  } catch {
-    return false;
-  }
-  if (url.origin !== self.location.origin) return false;
-  // API + Next internals must hit the network directly (never HTML / Response.error).
-  if (url.pathname.startsWith("/api/")) return false;
-  if (url.pathname.startsWith("/_next/")) return false;
-  // Only cache shell navigations / known static shell URLs.
-  if (request.mode === "navigate") return true;
-  return SHELL.includes(url.pathname);
-}
-
-self.addEventListener("fetch", (event) => {
-  const { request } = event;
-  if (!shouldHandle(request)) return;
-
-  event.respondWith(
-    fetch(request)
-      .then((response) => {
-        if (response.ok) {
-          const copy = response.clone();
-          void caches.open(CACHE).then((cache) => cache.put(request, copy));
-        }
-        return response;
-      })
-      .catch(async () => {
-        const cached = await caches.match(request);
-        if (cached) return cached;
-        if (request.mode === "navigate") {
-          const shell = await caches.match("/");
-          if (shell) return shell;
-        }
-        // Do not return Response.error() for non-nav — that surfaces as NetworkError in Firefox.
-        return new Response("Offline", { status: 503, statusText: "Offline" });
-      }),
-  );
+// Never handle fetches — pass through to the network (and we unregister above).
+self.addEventListener("fetch", () => {
+  // Intentionally empty: do not call event.respondWith.
 });

@@ -1,6 +1,6 @@
-/** Loopback-only service worker cleanup (run.bat / local npm start). */
+/** Aggressive service-worker cleanup for local Pricekeep (Firefox NetworkError). */
 
-function isLoopbackHost(hostname: string) {
+export function isLoopbackHost(hostname: string) {
   return (
     hostname === "localhost" ||
     hostname === "127.0.0.1" ||
@@ -9,32 +9,64 @@ function isLoopbackHost(hostname: string) {
   );
 }
 
-async function unregisterPricekeepWorkers() {
+/** Always unregister every SW + wipe pricekeep caches. Safe to call every search. */
+export async function nukeServiceWorkers(): Promise<void> {
+  if (typeof window === "undefined") return;
   if (!("serviceWorker" in navigator)) return;
-  const regs = await navigator.serviceWorker.getRegistrations();
-  await Promise.all(regs.map((r) => r.unregister()));
-  if ("caches" in window) {
-    const keys = await caches.keys();
+
+  try {
+    const regs = await navigator.serviceWorker.getRegistrations();
     await Promise.all(
-      keys
-        .filter((k) => k.startsWith("pricekeep-shell"))
-        .map((k) => caches.delete(k)),
+      regs.map(async (r) => {
+        try {
+          await r.unregister();
+        } catch {
+          // ignore
+        }
+      }),
     );
+  } catch {
+    // ignore
+  }
+
+  try {
+    if ("caches" in window) {
+      const keys = await caches.keys();
+      await Promise.all(
+        keys.map(async (k) => {
+          try {
+            await caches.delete(k);
+          } catch {
+            // ignore
+          }
+        }),
+      );
+    }
+  } catch {
+    // ignore
+  }
+
+  // If a controller is still attached, reload once after unregister is sticky.
+  try {
+    if (navigator.serviceWorker.controller) {
+      // Controller may linger until next navigation; fetches should still bypass
+      // once registration is gone, but we force a soft hint via console.
+      console.info(
+        "[Pricekeep] Cleared service workers. If search still NetworkErrors, hard-refresh once.",
+      );
+    }
+  } catch {
+    // ignore
   }
 }
 
-let loopbackClear: Promise<void> | null = null;
-
-/** Await before /api fetch on loopback so a stale SW cannot NetworkError the request. */
+/** @deprecated use nukeServiceWorkers — kept name for call sites */
 export function ensureLoopbackServiceWorkersCleared(): Promise<void> {
   if (typeof window === "undefined") return Promise.resolve();
-  if (!isLoopbackHost(window.location.hostname)) return Promise.resolve();
-  if (!loopbackClear) {
-    loopbackClear = unregisterPricekeepWorkers().catch(() => {
-      // ignore
-    });
+  // Always nuke on every call (including non-loopback if somehow registered).
+  // Loopback: mandatory. Non-loopback: only if we previously registered kill-switch.
+  if (isLoopbackHost(window.location.hostname)) {
+    return nukeServiceWorkers();
   }
-  return loopbackClear;
+  return Promise.resolve();
 }
-
-export { isLoopbackHost };

@@ -38,7 +38,7 @@ export const viewport: Viewport = {
   initialScale: 1,
 };
 
-/** Runs before React — clears stale SWs on 127.0.0.1/localhost so /api fetch is not NetworkError'd. */
+/** Runs before React — on loopback, nuke ALL service workers + caches (Firefox NetworkError). */
 const LOOPBACK_SW_CLEAR = `
 (function(){
   try {
@@ -50,8 +50,7 @@ const LOOPBACK_SW_CLEAR = `
     });
     if ("caches" in window) {
       caches.keys().then(function(keys){
-        keys.filter(function(k){ return k.indexOf("pricekeep-shell") === 0; })
-          .forEach(function(k){ caches.delete(k); });
+        keys.forEach(function(k){ caches.delete(k); });
       });
     }
   } catch (e) {}

@@ -49,8 +49,8 @@ If search shows an error, the UI now surfaces the real `/api/search` HTTP status
 1. Confirm the server is up on port **43127** (`npm run dev` or `npm start`).
 2. Hit [http://127.0.0.1:43127/api/health](http://127.0.0.1:43127/api/health) — should report `catalog.driver: "better-sqlite3"` and `catalog.available: true`.
 3. Hit [http://127.0.0.1:43127/api/search?q=bambu%20lab%20h2s&region=au](http://127.0.0.1:43127/api/search?q=bambu%20lab%20h2s&region=au) directly in the browser — you must see **JSON**, not an HTML page.
-4. If the UI says **NetworkError** / could not reach `/api/search`: stay on **http://127.0.0.1:43127** (what `run.bat` opens). Firefox treats `localhost` and `127.0.0.1` as different sites — mixing them breaks fetch/service workers. Leave the `run.bat` console open. Hard-refresh once after pull.
-5. If the UI says search returned **HTML** with HTTP 200: hard-refresh (Ctrl+Shift+R). Older service workers could return the app shell for `/api/*`; local loopback now unregisters the SW automatically.
+4. If the UI says **NetworkError** / could not reach `/api/search`: stay on **http://127.0.0.1:43127**. Confirm [http://127.0.0.1:43127/api/ping](http://127.0.0.1:43127/api/ping) returns JSON. Hard-refresh once. Local loopback **disables service workers** entirely; if ping works but search NetworkErrors, try a private Firefox window (extensions off). Leave the `run.bat` console open.
+5. If the UI says search returned **HTML** with HTTP 200: hard-refresh (Ctrl+Shift+R).
 6. If `better-sqlite3` failed to build: delete `node_modules`, run `npm install` again, then restart the server (`npm run build` uses **webpack**).
 7. Prefer `http://127.0.0.1:43127` over `http://localhost:43127` so the host matches `run.bat`.
 
