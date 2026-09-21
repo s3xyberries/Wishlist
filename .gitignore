@@ -24,8 +24,15 @@
 .DS_Store
 *.pem
 
-# shared scrape catalog (server-side durable store)
+# shared scrape catalog (server-side durable store — local only, can grow)
 .data/
+*.sqlite
+*.sqlite-shm
+*.sqlite-wal
+
+# local caches / build artifacts (safe to delete — see npm run clean)
+.turbo/
+*.log
 
 # debug
 npm-debug.log*

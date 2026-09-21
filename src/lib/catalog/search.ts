@@ -4,7 +4,7 @@ import {
   type SearchResponse,
 } from "@/lib/scrape/google-shopping";
 import type { RegionConfig } from "@/lib/region/config";
-import { CatalogUnavailableError } from "./db";
+import { CatalogUnavailableError } from "./errors";
 import {
   lookupQueryCache,
   matchCatalogProducts,

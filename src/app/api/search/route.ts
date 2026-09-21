@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { CatalogUnavailableError } from "@/lib/catalog/db";
+import { CatalogUnavailableError } from "@/lib/catalog/errors";
 import { regionFromRequest } from "@/lib/region/server";
 
 export const dynamic = "force-dynamic";

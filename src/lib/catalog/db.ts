@@ -1,6 +1,8 @@
-import Database from "better-sqlite3";
 import { mkdirSync, existsSync, readFileSync, renameSync } from "node:fs";
 import path from "node:path";
+import { CatalogUnavailableError } from "./errors";
+
+export { CatalogUnavailableError } from "./errors";
 
 const DATA_DIR = path.join(process.cwd(), ".data");
 export const CATALOG_DB_PATH = path.join(DATA_DIR, "pricekeep.sqlite");
@@ -9,18 +11,27 @@ const LEGACY_JSON_PATH = path.join(DATA_DIR, "shared-catalog.json");
 /** Recommended Node for native better-sqlite3 builds (Windows/macOS/Linux). */
 export const MIN_NODE_VERSION = "20.0.0";
 
-export class CatalogUnavailableError extends Error {
-  code = "CATALOG_UNAVAILABLE" as const;
-  constructor(message: string) {
-    super(message);
-    this.name = "CatalogUnavailableError";
-  }
-}
+type BetterSqlite3 = typeof import("better-sqlite3");
+type CatalogDatabase = import("better-sqlite3").Database;
 
-type CatalogDatabase = Database.Database;
-
+let DatabaseCtor: BetterSqlite3 | null = null;
 let dbSingleton: CatalogDatabase | null = null;
 let loadError: CatalogUnavailableError | null = null;
+
+/** Lazy-load native addon — top-level import crashes the whole Next process on Windows ABI mismatch. */
+function loadBetterSqlite3(): BetterSqlite3 {
+  if (DatabaseCtor) return DatabaseCtor;
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    DatabaseCtor = require("better-sqlite3") as BetterSqlite3;
+    return DatabaseCtor;
+  } catch (err) {
+    const detail = err instanceof Error ? err.message : String(err);
+    throw new CatalogUnavailableError(
+      `better-sqlite3 failed to load (${detail}). Run \`npm install\` (rebuilds the native module). On Windows install Visual Studio Build Tools (Desktop C++).`,
+    );
+  }
+}
 
 function ensureSchema(db: CatalogDatabase) {
   db.exec(`
@@ -229,12 +240,17 @@ export function getDb(): CatalogDatabase {
 
   try {
     mkdirSync(DATA_DIR, { recursive: true });
+    const Database = loadBetterSqlite3();
     const db = new Database(CATALOG_DB_PATH);
     ensureSchema(db);
     migrateLegacyJson(db);
     dbSingleton = db;
     return db;
   } catch (err) {
+    if (err instanceof CatalogUnavailableError) {
+      loadError = err;
+      throw err;
+    }
     const detail = err instanceof Error ? err.message : String(err);
     loadError = new CatalogUnavailableError(
       `Shared catalog failed to open (${detail}). Ensure Node.js >= ${MIN_NODE_VERSION}, run \`npm install\` (rebuilds better-sqlite3), and that .data/ is writable.`,
