@@ -44,6 +44,7 @@ function isLiveScrapeMode(
   return (
     mode === "serpapi" ||
     mode === "scrape" ||
+    mode === "browser-scrape" ||
     mode === "amazon-scrape" ||
     mode === "official-scrape"
   );

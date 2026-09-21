@@ -75,6 +75,14 @@ if ($LASTEXITCODE -ne 0) {
 }
 
 Write-Host ""
+Write-Host "Ensuring Playwright Chromium (Google Shopping browser fallback)..."
+npm run playwright:install
+if ($LASTEXITCODE -ne 0) {
+  Write-Host "Warning: Playwright Chromium install failed."
+  Write-Host "Run: npx playwright install chromium"
+}
+
+Write-Host ""
 Write-Host "Update complete. Starting Pricekeep (forced rebuild)..."
 Write-Host ""
 

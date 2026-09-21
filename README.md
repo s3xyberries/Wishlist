@@ -16,11 +16,12 @@ Canonical GitHub repo: **https://github.com/s3xyberries/Wishlist**
 
 1. Install [Node.js 20+](https://nodejs.org) (22+ recommended) and [Git for Windows](https://git-scm.com/download/win).
 2. **First time / day-to-day:** double-click **`run.bat`** in the project folder (or right-click **`run.ps1`** → Run with PowerShell). Paths with spaces (e.g. `Desktop\Price Checker\Wishlist`) are fine — the launcher `cd`s into its own folder.
-3. **After we push updates:** double-click **`update.bat`** (**Update & Run**). It resets a drifted `package-lock.json`, runs `git pull`, `npm run clean`, `npm install`, rebuilds, starts the app on [http://127.0.0.1:43127](http://127.0.0.1:43127), and opens the browser. PowerShell mirror: `update.ps1`. macOS/Linux: `chmod +x update.sh && ./update.sh`.
+3. **After we push updates:** double-click **`update.bat`** (**Update & Run**). It resets a drifted `package-lock.json`, runs `git pull`, `npm run clean`, `npm install`, installs **Playwright Chromium** (`npx playwright install chromium`), rebuilds, starts the app on [http://127.0.0.1:43127](http://127.0.0.1:43127), and opens the browser. PowerShell mirror: `update.ps1`. macOS/Linux: `chmod +x update.sh && ./update.sh`.
 4. Each `run.bat` launch runs **`npm install`**, then **`npm run build`** when `.next\BUILD_ID` is missing, and only starts after the build succeeds. If the checkout is behind GitHub, `run.bat` prints a tip to use `update.bat`.
 5. Leave the console window open while you use Pricekeep. If it prints **SERVER DIED**, the Node process exited — that is why the browser shows NetworkError / unable to connect. Read the message in that window.
 6. If you see **“Could not find a production build”**, double-click `update.bat` (or delete `.next` and run `run.bat` again).
 7. If Next warns that it ignored `package-lock.json` because of a file under `C:\Users\<you>\`, delete that **stray** `C:\Users\<you>\package-lock.json` (not the one inside this repo).
+8. Google Shopping: plain HTTP first; if Google returns a JS shell, Pricekeep retries with **headless Chromium**. First run needs Chromium via `update.bat` or `npm run playwright:install`.
 
 ### Disk size (~600MB)
 
@@ -81,8 +82,8 @@ Exit code **`-1073741819`** (`0xC0000005` ACCESS_VIOLATION) was caused by the ol
 ## What works now
 
 - **Region switcher (AU default / US)** — currency, Google `gl`, Amazon/eBay hosts, and official PDPs follow the active region
-- Product search via `/api/search?region=au`: **SQLite catalog first** (6h TTL) → **Google Shopping HTML scrape** (`udm=28` / `tbm=shop`, `gl=au`) → Amazon (.com.au) → official brand PDPs. `?refresh=1` forces a re-scrape. SerpAPI is optional and never required.
-- Response JSON includes `googleStatus` / `googleNote` when Google HTML was attempted (`ok`, `js_required`, `captcha`, `consent`, `unavailable`, `blocked`, `empty`, `parse`) so blocks do not crash the server.
+- Product search via `/api/search?region=au`: **SQLite catalog first** (6h TTL) → **Google Shopping HTTP scrape** → **Playwright Chromium** if JS shell/captcha → Amazon (.com.au) → official brand PDPs. `?refresh=1` forces a re-scrape. SerpAPI is optional and never required.
+- Response JSON includes `googleStatus` / `googleNote` when Google was attempted (`ok`, `js_required`, `captcha`, …). Mode `browser-scrape` means headless Chromium succeeded.
 - Shared catalog browse at `/catalog` (region-scoped)
 - Confirm / intercept step before adding to the wishlist
 - **Paste a product URL** on Wishlist (or product sources) → scrape title/price → track + daily recheck
@@ -101,7 +102,7 @@ Successful scrapes land in **`.data/pricekeep.sqlite`**. Driver: **`sql.js`** (W
 
 Live HTML fetches are **user-initiated** (search, track/discover, manual price check) plus the **optional daily scheduler** for already-tracked offers. There is **no mock/stub fallback data**. Shared catalog reuse avoids repeat scrapes. Requests use a polite User-Agent, AU/US Accept-Language + consent cookies for Google, short timeouts, per-host rate limits, and a short in-memory cache.
 
-**Google Shopping reliability:** Direct scrape works best from residential / home IPs. From cloud and datacenter IPs Google often returns an `enablejs` shell or captcha — Pricekeep reports `googleStatus: "js_required"` / `"captcha"` and falls through to Amazon + official PDPs without crashing. Prefer scrape over any paid search API.
+**Google Shopping reliability:** Plain HTTP often gets an `enablejs` shell. Pricekeep then launches **headless Chromium (Playwright)** on that path only. Home PCs with `npx playwright install chromium` (or `update.bat`) usually get real cards; cloud/datacenter IPs may still see captcha. Prefer scrape over any paid search API.
 
 ## Live sources (AU default)
 

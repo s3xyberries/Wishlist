@@ -53,6 +53,10 @@ echo "Installing dependencies (npm install)..."
 npm install
 
 echo
+echo "Ensuring Playwright Chromium (Google Shopping browser fallback)..."
+npm run playwright:install || echo "Warning: Playwright Chromium install failed — run: npx playwright install chromium"
+
+echo
 echo "Update complete. Starting Pricekeep (forced rebuild)..."
 echo
 export FORCE_REBUILD=1

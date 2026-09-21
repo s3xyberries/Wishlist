@@ -9,6 +9,8 @@
     "start": "node scripts/preflight.cjs && next start --hostname 127.0.0.1 --port 43127",
     "clean": "node scripts/clean.cjs",
     "clean:all": "node scripts/clean.cjs --all",
+    "postinstall": "node scripts/ensure-playwright.cjs",
+    "playwright:install": "npx playwright install chromium",
     "lint": "eslint",
     "price-check:daily": "tsx scripts/daily-price-check.ts",
     "scheduler": "tsx scripts/scheduler.ts"
@@ -24,6 +26,7 @@
     "lucide-react": "^1.46.0",
     "next": "16.3.5",
     "node-cron": "^4.6.0",
+    "playwright": "^1.63.0",
     "react": "19.2.8",
     "react-dom": "19.2.8",
     "shadcn": "^4.21.0",

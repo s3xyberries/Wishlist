@@ -286,15 +286,24 @@ export function SearchExperience() {
               {googleStatus &&
               googleStatus !== "ok" &&
               googleStatus !== "empty" ? (
-                <span className="block">
-                  Google Shopping was blocked ({googleStatus}
-                  {googleStatus === "js_required"
-                    ? " — JS shell, common on cloud/datacenter IPs"
-                    : googleStatus === "captcha"
-                      ? " — captcha / unusual traffic"
-                      : ""}
-                  ). Amazon and official store scrapes also returned nothing for
-                  this query.
+                <span className="block space-y-1">
+                  <span className="block">
+                    Google Shopping stayed blocked after plain HTTP and a
+                    headless Chromium attempt ({googleStatus}
+                    {googleStatus === "js_required"
+                      ? " — JS shell"
+                      : googleStatus === "captcha"
+                        ? " — captcha / unusual traffic"
+                        : ""}
+                    ).
+                  </span>
+                  <span className="block text-muted-foreground">
+                    Amazon and official store scrapes also returned nothing for
+                    this query. On a home PC, run{" "}
+                    <code className="rounded bg-muted px-1">update.bat</code>{" "}
+                    once so Playwright Chromium is installed, then try Force
+                    refresh.
+                  </span>
                 </span>
               ) : (
                 <span className="block">

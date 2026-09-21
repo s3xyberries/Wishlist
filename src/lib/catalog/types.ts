@@ -3,6 +3,7 @@ import type { SearchResult, SourceId } from "@/lib/types";
 export type CatalogOrigin =
   | "serpapi"
   | "scrape"
+  | "browser-scrape"
   | "amazon-scrape"
   | "official-scrape"
   | "catalog";

@@ -108,6 +108,17 @@ if errorlevel 1 (
 )
 
 echo.
+echo Ensuring Playwright Chromium ^(Google Shopping browser fallback^)...
+call npm.cmd run playwright:install
+if errorlevel 1 (
+  echo.
+  echo Warning: Playwright Chromium install failed.
+  echo Google headless fallback needs: npx playwright install chromium
+  echo Continuing without it -- Amazon/official scrapes still work.
+  echo.
+)
+
+echo.
 echo Update complete. Starting Pricekeep ^(forced rebuild^)...
 echo.
 

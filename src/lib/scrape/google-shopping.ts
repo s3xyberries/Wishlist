@@ -9,6 +9,7 @@ import type { SearchResult } from "@/lib/types";
 export type SearchMode =
   | "serpapi"
   | "scrape"
+  | "browser-scrape"
   | "amazon-scrape"
   | "official-scrape"
   | "empty"
@@ -554,7 +555,49 @@ export async function searchProducts(
     }
   }
 
-  // 2) Optional SerpAPI only if a key is already configured (never required).
+  // 2) Headless Chromium when plain HTTP got a JS shell / captcha / empty parse.
+  if (
+    googleStatus === "js_required" ||
+    googleStatus === "captcha" ||
+    googleStatus === "empty" ||
+    googleStatus === "parse" ||
+    googleStatus === "blocked" ||
+    googleStatus === "consent" ||
+    googleStatus === "unavailable"
+  ) {
+    try {
+      const { searchGoogleShoppingViaBrowser } = await import(
+        "./google-shopping-browser"
+      );
+      const browser = await searchGoogleShoppingViaBrowser(q, region);
+      if (browser.results.length && browser.googleStatus === "ok") {
+        return {
+          results: browser.results,
+          mode: "browser-scrape",
+          note: browser.note,
+          googleStatus: "ok",
+          googleNote: undefined,
+        };
+      }
+      googleStatus = browser.googleStatus || googleStatus;
+      googleNote = [
+        googleNote,
+        browser.note,
+      ]
+        .filter(Boolean)
+        .join(" ");
+    } catch (err) {
+      const msg =
+        err instanceof ScrapeError
+          ? err.message
+          : err instanceof Error
+            ? err.message
+            : "Headless browser scrape failed.";
+      googleNote = [googleNote, msg].filter(Boolean).join(" ");
+    }
+  }
+
+  // 3) Optional SerpAPI only if a key is already configured (never required).
   if (hasSerpApiKey()) {
     try {
       const results = await searchViaSerpApi(q, region);
@@ -562,7 +605,7 @@ export async function searchProducts(
         return {
           results,
           mode: "serpapi",
-          note: `Google HTML unavailable — SerpAPI fallback (${region.shortLabel}).`,
+          note: `Google HTML/browser unavailable — SerpAPI fallback (${region.shortLabel}).`,
           googleStatus,
           googleNote,
         };
@@ -572,7 +615,7 @@ export async function searchProducts(
     }
   }
 
-  // 3) Amazon regional search scrape
+  // 4) Amazon regional search scrape
   try {
     const results = await searchAmazonAsCatalog(q, region);
     if (results.length) {
@@ -591,7 +634,7 @@ export async function searchProducts(
     // fall through
   }
 
-  // 4) Official brand PDPs
+  // 5) Official brand PDPs
   try {
     const results = await searchOfficialStores(q, region);
     if (results.length) {
@@ -615,7 +658,7 @@ export async function searchProducts(
     mode: "empty",
     note: [
       googleNote ?? `No live ${region.shortLabel} scrape results.`,
-      "Retailers blocked this request or returned no matches.",
+      "HTTP + headless browser Google attempts failed or returned no matches; Amazon/official also empty.",
     ].join(" "),
     googleStatus,
     googleNote,
