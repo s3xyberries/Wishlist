@@ -7,6 +7,7 @@ echo
 echo " Pricekeep launcher"
 echo " =================="
 echo " Project: $PWD"
+echo " Tip: after we push updates, run ./update.sh (Update & Run)."
 echo
 
 if ! command -v node >/dev/null 2>&1; then

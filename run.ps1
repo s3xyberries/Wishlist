@@ -7,6 +7,7 @@ Write-Host ""
 Write-Host " Pricekeep launcher"
 Write-Host " =================="
 Write-Host " Project: $PWD"
+Write-Host " Tip: after we push updates, double-click update.bat (Update & Run)."
 Write-Host ""
 
 function Wait-ForKey([string]$Message) {
@@ -22,6 +23,21 @@ if (-not (Get-Command node -ErrorAction SilentlyContinue)) {
 if (-not (Get-Command npm -ErrorAction SilentlyContinue)) {
   Wait-ForKey "npm was not found on PATH."
   exit 1
+}
+
+if ((Get-Command git -ErrorAction SilentlyContinue) -and (Test-Path -LiteralPath (Join-Path $PSScriptRoot ".git"))) {
+  try {
+    git fetch --quiet --no-tags 2>$null
+    $behind = git rev-list --count 'HEAD..@{u}' 2>$null
+    if ($behind -and [int]$behind -gt 0) {
+      Write-Host ""
+      Write-Host " Updates available ($behind commit(s) behind)."
+      Write-Host " Double-click update.bat to pull, clean, install, and restart."
+      Write-Host ""
+    }
+  } catch {
+    # ignore fetch/upstream issues
+  }
 }
 
 Write-Host "Node $(node -v)"

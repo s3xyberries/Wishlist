@@ -14,12 +14,13 @@ Canonical GitHub repo: **https://github.com/s3xyberries/Wishlist**
 
 ### Windows (double-click)
 
-1. Install [Node.js 20+](https://nodejs.org) (22+ recommended).
-2. Double-click **`run.bat`** in the project folder (or right-click **`run.ps1`** → Run with PowerShell). Paths with spaces (e.g. `Desktop\Price Checker\Wishlist`) are fine — the launcher `cd`s into its own folder.
-3. Each launch runs **`npm install`**, then **`npm run build`** when `.next\BUILD_ID` is missing, and only starts after the build succeeds. Then it opens [http://127.0.0.1:43127](http://127.0.0.1:43127) (IPv4 loopback — the server also binds to `127.0.0.1`).
-4. Leave the console window open while you use Pricekeep. If it prints **SERVER DIED**, the Node process exited — that is why the browser shows NetworkError / unable to connect. Read the message in that window.
-5. If you see **“Could not find a production build”**, delete `.next`, then double-click `run.bat` again.
-6. If Next warns that it ignored `package-lock.json` because of a file under `C:\Users\<you>\`, delete that **stray** `C:\Users\<you>\package-lock.json` (not the one inside this repo).
+1. Install [Node.js 20+](https://nodejs.org) (22+ recommended) and [Git for Windows](https://git-scm.com/download/win).
+2. **First time / day-to-day:** double-click **`run.bat`** in the project folder (or right-click **`run.ps1`** → Run with PowerShell). Paths with spaces (e.g. `Desktop\Price Checker\Wishlist`) are fine — the launcher `cd`s into its own folder.
+3. **After we push updates:** double-click **`update.bat`** (**Update & Run**). It resets a drifted `package-lock.json`, runs `git pull`, `npm run clean`, `npm install`, rebuilds, starts the app on [http://127.0.0.1:43127](http://127.0.0.1:43127), and opens the browser. PowerShell mirror: `update.ps1`. macOS/Linux: `chmod +x update.sh && ./update.sh`.
+4. Each `run.bat` launch runs **`npm install`**, then **`npm run build`** when `.next\BUILD_ID` is missing, and only starts after the build succeeds. If the checkout is behind GitHub, `run.bat` prints a tip to use `update.bat`.
+5. Leave the console window open while you use Pricekeep. If it prints **SERVER DIED**, the Node process exited — that is why the browser shows NetworkError / unable to connect. Read the message in that window.
+6. If you see **“Could not find a production build”**, double-click `update.bat` (or delete `.next` and run `run.bat` again).
+7. If Next warns that it ignored `package-lock.json` because of a file under `C:\Users\<you>\`, delete that **stray** `C:\Users\<you>\package-lock.json` (not the one inside this repo).
 
 ### Disk size (~600MB)
 
@@ -32,9 +33,20 @@ npm run clean:all    # also delete node_modules → then npm install
 
 Do **not** delete `.git`. Optional: delete `.data/` to reset the SQLite catalog only.
 
-macOS/Linux: `chmod +x run.sh && ./run.sh` (same install → build → start flow).
+macOS/Linux: `chmod +x run.sh && ./run.sh` (same install → build → start flow). For updates: `./update.sh`.
 
 ### From a terminal
+
+Prefer **`update.bat`** / **`./update.sh`** instead of hand-running:
+
+```bash
+git pull
+npm run clean
+npm install
+npm run build && npm start
+```
+
+Or for a quick dev loop:
 
 ```bash
 git pull

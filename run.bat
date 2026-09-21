@@ -12,6 +12,7 @@ echo.
 echo  Pricekeep launcher
 echo  ==================
 echo  Project: %CD%
+echo  Tip: after we push updates, double-click update.bat ^(Update ^& Run^).
 echo.
 
 where node >nul 2>&1
@@ -30,6 +31,22 @@ if errorlevel 1 (
   echo.
   pause
   exit /b 1
+)
+
+rem Soft hint when this checkout is behind its upstream (no network wait if fetch fails).
+where git >nul 2>&1
+if not errorlevel 1 (
+  if exist ".git\" (
+    git fetch --quiet --no-tags 2>nul
+    for /f %%c in ('git rev-list --count HEAD..@{u} 2^>nul') do (
+      if not "%%c"=="" if not "%%c"=="0" (
+        echo.
+        echo  Updates available ^(%%c commit^(s^) behind^).
+        echo  Double-click update.bat to pull, clean, install, and restart.
+        echo.
+      )
+    )
+  )
 )
 
 for /f "tokens=*" %%v in ('node -v 2^>nul') do set "NODE_VER=%%v"
