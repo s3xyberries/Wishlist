@@ -1,6 +1,6 @@
 # Pricekeep
 
-Wishlist and price-tracking web app (PWA-ready). Defaults to **Australia (AUD)** with a region switcher (AU/US). Search via live scrape (or SerpAPI), confirm the right match, track Amazon/eBay/official sources, review price history, and see in-app alerts.
+Wishlist and price-tracking web app (PWA-ready). Defaults to **Australia (AUD)** with a region switcher (AU/US). Search via **direct Google Shopping HTML scrape** (no API key), then Amazon / official PDPs as fallbacks. Confirm the right match, track sources, review price history, and see in-app alerts.
 
 Canonical GitHub repo: **https://github.com/s3xyberries/Wishlist**
 
@@ -69,7 +69,8 @@ Exit code **`-1073741819`** (`0xC0000005` ACCESS_VIOLATION) was caused by the ol
 ## What works now
 
 - **Region switcher (AU default / US)** — currency, Google `gl`, Amazon/eBay hosts, and official PDPs follow the active region
-- Product search via `/api/search?region=au`: **SQLite catalog first** (6h TTL) → SerpAPI → Google Shopping → Amazon (.com.au) → official brand PDPs. `?refresh=1` forces a re-scrape
+- Product search via `/api/search?region=au`: **SQLite catalog first** (6h TTL) → **Google Shopping HTML scrape** (`udm=28` / `tbm=shop`, `gl=au`) → Amazon (.com.au) → official brand PDPs. `?refresh=1` forces a re-scrape. SerpAPI is optional and never required.
+- Response JSON includes `googleStatus` / `googleNote` when Google HTML was attempted (`ok`, `js_required`, `captcha`, `consent`, `unavailable`, `blocked`, `empty`, `parse`) so blocks do not crash the server.
 - Shared catalog browse at `/catalog` (region-scoped)
 - Confirm / intercept step before adding to the wishlist
 - **Paste a product URL** on Wishlist (or product sources) → scrape title/price → track + daily recheck
@@ -86,7 +87,9 @@ Successful scrapes land in **`.data/pricekeep.sqlite`**. Driver: **`sql.js`** (W
 
 ## Scrape policy (important)
 
-Live HTML fetches are **user-initiated** (search, track/discover, manual price check) plus the **optional daily scheduler** for already-tracked offers. There is **no mock/stub fallback data**. Shared catalog reuse avoids repeat scrapes. Requests use a polite User-Agent, short timeouts, per-host rate limits, and a short in-memory cache.
+Live HTML fetches are **user-initiated** (search, track/discover, manual price check) plus the **optional daily scheduler** for already-tracked offers. There is **no mock/stub fallback data**. Shared catalog reuse avoids repeat scrapes. Requests use a polite User-Agent, AU/US Accept-Language + consent cookies for Google, short timeouts, per-host rate limits, and a short in-memory cache.
+
+**Google Shopping reliability:** Direct scrape works best from residential / home IPs. From cloud and datacenter IPs Google often returns an `enablejs` shell or captcha — Pricekeep reports `googleStatus: "js_required"` / `"captcha"` and falls through to Amazon + official PDPs without crashing. Prefer scrape over any paid search API.
 
 ## Live sources (AU default)
 
@@ -106,7 +109,7 @@ Wishlist state persists in `localStorage` (`pricekeep-state-v4-au-regions`).
 Copy `.env.example` → `.env.local`. All keys are optional.
 
 ```bash
-SERPAPI_API_KEY=
+# SERPAPI_API_KEY=          # optional only; HTML scrape is preferred / default
 EBAY_CLIENT_ID=
 EBAY_CLIENT_SECRET=
 AMAZON_ACCESS_KEY=

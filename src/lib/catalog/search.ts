@@ -1,5 +1,6 @@
 import {
   searchProducts,
+  type GoogleBlockKind,
   type SearchMode,
   type SearchResponse,
 } from "@/lib/scrape/google-shopping";
@@ -26,6 +27,8 @@ export interface SearchWithCatalogResponse
   region: string;
   currency: string;
   catalogWarning?: string;
+  googleStatus?: GoogleBlockKind;
+  googleNote?: string;
 }
 
 function asCatalogHits(
@@ -132,6 +135,8 @@ export async function searchWithCatalog(
               catalogTtlMs,
               region: regionId,
               currency: region.currency,
+              googleStatus: live.googleStatus,
+              googleNote: live.googleNote,
             };
           } catch (err) {
             catalogWarning = catalogErrorMessage(err) ?? undefined;
@@ -144,6 +149,8 @@ export async function searchWithCatalog(
               region: regionId,
               currency: region.currency,
               catalogWarning,
+              googleStatus: live.googleStatus,
+              googleNote: live.googleNote,
             };
           }
         }
@@ -184,6 +191,8 @@ export async function searchWithCatalog(
         region: regionId,
         currency: region.currency,
         catalogWarning,
+        googleStatus: live.googleStatus,
+        googleNote: live.googleNote,
       };
     } catch (err) {
       catalogWarning =
@@ -197,6 +206,8 @@ export async function searchWithCatalog(
         region: regionId,
         currency: region.currency,
         catalogWarning,
+        googleStatus: live.googleStatus,
+        googleNote: live.googleNote,
       };
     }
   }
@@ -215,6 +226,8 @@ export async function searchWithCatalog(
           region: regionId,
           currency: region.currency,
           catalogWarning,
+          googleStatus: live.googleStatus,
+          googleNote: live.googleNote,
         };
       }
     } catch (err) {
@@ -232,5 +245,7 @@ export async function searchWithCatalog(
     region: regionId,
     currency: region.currency,
     catalogWarning,
+    googleStatus: live.googleStatus,
+    googleNote: live.googleNote,
   };
 }

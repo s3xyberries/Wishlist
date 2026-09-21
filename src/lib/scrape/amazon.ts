@@ -140,6 +140,7 @@ export async function searchAmazonAsCatalog(
     currency: region.currency,
     merchantHint: region.amazonMerchantLabel,
     sourceHint: "amazon" as const,
+    productUrl: h.url,
   }));
 }
 

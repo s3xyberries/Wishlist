@@ -45,6 +45,7 @@ export function SearchExperience() {
     null,
   );
   const [searchNote, setSearchNote] = useState<string | null>(null);
+  const [googleStatus, setGoogleStatus] = useState<string | null>(null);
   const [stale, setStale] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [lastRequestUrl, setLastRequestUrl] = useState<string | null>(null);
@@ -63,6 +64,7 @@ export function SearchExperience() {
       setSearchMode("idle");
       setSearchOrigin(null);
       setSearchNote(null);
+      setGoogleStatus(null);
       setStale(false);
       return;
     }
@@ -91,6 +93,7 @@ export function SearchExperience() {
       setSearchMode("error");
       setSearchOrigin(null);
       setSearchNote(null);
+      setGoogleStatus(null);
       setStale(false);
       setStatus("error");
       setErrorMessage(result.message);
@@ -107,6 +110,7 @@ export function SearchExperience() {
     setSearchNote(
       [data.note, data.catalogWarning].filter(Boolean).join(" ") || null,
     );
+    setGoogleStatus(data.googleStatus ?? null);
     setStale(Boolean(data.stale));
     if (data.mode === "error" && !hits.length) {
       setStatus("error");
@@ -279,8 +283,25 @@ export function SearchExperience() {
           <Alert>
             <AlertTitle>No matches for “{submitted}”</AlertTitle>
             <AlertDescription>
-              Nothing in the shared catalog and the live scrape returned empty.
-              Try a clearer brand or model name.
+              {googleStatus &&
+              googleStatus !== "ok" &&
+              googleStatus !== "empty" ? (
+                <span className="block">
+                  Google Shopping was blocked ({googleStatus}
+                  {googleStatus === "js_required"
+                    ? " — JS shell, common on cloud/datacenter IPs"
+                    : googleStatus === "captcha"
+                      ? " — captcha / unusual traffic"
+                      : ""}
+                  ). Amazon and official store scrapes also returned nothing for
+                  this query.
+                </span>
+              ) : (
+                <span className="block">
+                  Nothing in the shared catalog and the live scrape returned
+                  empty. Try a clearer brand or model name.
+                </span>
+              )}
             </AlertDescription>
           </Alert>
         ) : null}
@@ -341,6 +362,11 @@ export function SearchExperience() {
                         </span>
                       ) : null}
                     </p>
+                    {item.productUrl ? (
+                      <p className="truncate text-xs text-muted-foreground">
+                        {item.productUrl}
+                      </p>
+                    ) : null}
                   </div>
                 </button>
               </li>
@@ -356,6 +382,13 @@ export function SearchExperience() {
                 {" "}
                 · origin:{" "}
                 <code className="rounded bg-muted px-1 py-0.5">{searchOrigin}</code>
+              </>
+            ) : null}
+            {googleStatus ? (
+              <>
+                {" "}
+                · google:{" "}
+                <code className="rounded bg-muted px-1 py-0.5">{googleStatus}</code>
               </>
             ) : null}
           </p>

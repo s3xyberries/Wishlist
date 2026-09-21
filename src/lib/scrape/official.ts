@@ -60,6 +60,7 @@ async function scrapeOfficialPdp(
     currency: ld?.currency || region.currency,
     merchantHint: `${entry.brand} official store (${region.shortLabel})`,
     sourceHint: "shopping",
+    productUrl: entry.url,
   };
 }
 

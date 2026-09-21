@@ -12,6 +12,8 @@ export type SearchApiPayload = {
   catalogWarning?: string;
   region?: string;
   currency?: string;
+  googleStatus?: string;
+  googleNote?: string;
 };
 
 export type SearchApiResult =

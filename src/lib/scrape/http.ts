@@ -30,10 +30,13 @@ function sleep(ms: number) {
 
 export class ScrapeError extends Error {
   status?: number;
-  constructor(message: string, status?: number) {
+  /** Machine-readable reason (e.g. google_captcha, google_js_required). */
+  code?: string;
+  constructor(message: string, status?: number, code?: string) {
     super(message);
     this.name = "ScrapeError";
     this.status = status;
+    this.code = code;
   }
 }
 
@@ -44,6 +47,8 @@ export interface FetchHtmlOptions {
   accept?: string;
   /** Skip cache read/write (still rate-limited). */
   bypassCache?: boolean;
+  /** Merged onto default browser-like headers (e.g. Cookie, Accept-Language). */
+  extraHeaders?: Record<string, string>;
 }
 
 /**
@@ -81,10 +86,13 @@ export async function fetchText(
       signal: controller.signal,
       headers: {
         "User-Agent": PRICEKEEP_USER_AGENT,
-        Accept: options.accept ?? "text/html,application/xhtml+xml;q=0.9,*/*;q=0.8",
+        Accept:
+          options.accept ??
+          "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
         "Accept-Language": "en-US,en;q=0.9",
         "Cache-Control": "no-cache",
         "Upgrade-Insecure-Requests": "1",
+        ...(options.extraHeaders ?? {}),
       },
     });
 

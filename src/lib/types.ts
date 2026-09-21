@@ -17,6 +17,8 @@ export interface SearchResult {
   currency: string;
   merchantHint: string;
   sourceHint: SourceId | "shopping";
+  /** Product or merchant URL when the scrape provides one (Google / Amazon / official). */
+  productUrl?: string;
   rating?: number;
   reviewCount?: number;
 }
