@@ -48,7 +48,7 @@ function isLiveScrapeMode(
 
 function catalogErrorMessage(err: unknown): string | null {
   if (err instanceof CatalogUnavailableError) return err.message;
-  if (err instanceof Error && /sqlite|better-sqlite3/i.test(err.message)) {
+  if (err instanceof Error && /sqlite|sql\.js/i.test(err.message)) {
     return err.message;
   }
   return null;

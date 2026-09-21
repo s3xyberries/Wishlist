@@ -1,6 +1,6 @@
 @echo off
 setlocal EnableExtensions
-rem Always run from this script's folder (handles paths with spaces, e.g. "Price Checker").
+rem Always run from this script's folder (handles paths with spaces).
 cd /d "%~dp0" || (
   echo Could not cd to the project folder: "%~dp0"
   pause
@@ -55,34 +55,28 @@ echo Ensuring dependencies are installed ^(npm install^)...
 call npm.cmd install
 if errorlevel 1 (
   echo.
-  echo npm install failed.
-  echo better-sqlite3 needs a native build. Install Visual Studio Build Tools
-  echo ^(Desktop C++ workload^) then double-click run.bat again.
+  echo npm install failed. Check the messages above.
   echo.
   pause
   exit /b 1
 )
 
-echo.
-echo Checking better-sqlite3 native module...
-node -e "require('better-sqlite3'); console.log('better-sqlite3 OK')"
-if errorlevel 1 (
+if not exist "node_modules\sql.js\package.json" (
   echo.
-  echo better-sqlite3 failed to load. Delete node_modules, install VS Build Tools ^(C++^),
-  echo then run.bat again. Or: npm run clean:all ^&^& npm install
+  echo sql.js is missing after npm install. Delete node_modules and run.bat again.
   echo.
   pause
   exit /b 1
 )
 
-rem Rebuild if missing BUILD_ID, or when FORCE_REBUILD=1 (set before run.bat after git pull).
+rem Rebuild if missing BUILD_ID, or when FORCE_REBUILD=1 after git pull.
 set "NEED_BUILD=0"
 if not exist ".next\BUILD_ID" set "NEED_BUILD=1"
 if "%FORCE_REBUILD%"=="1" set "NEED_BUILD=1"
 
 if "%NEED_BUILD%"=="1" (
   echo.
-  echo Production build missing — running npm run build...
+  echo Production build missing -- running npm run build...
   if exist ".next\" (
     echo Removing incomplete .next folder...
     rmdir /s /q ".next" 2>nul
@@ -107,10 +101,9 @@ if not exist ".next\BUILD_ID" (
 
 echo.
 echo Starting Pricekeep at http://127.0.0.1:43127
-echo Keep this window open. If it closes or prints SERVER DIED, the Node process crashed.
+echo Keep this window open. If it prints SERVER DIED, the Node process crashed.
 echo.
 
-rem Open browser after the server should be listening.
 start "" cmd /c "timeout /t 6 /nobreak >nul & start http://127.0.0.1:43127/"
 
 call npm.cmd start
@@ -118,17 +111,16 @@ set "EXITCODE=%ERRORLEVEL%"
 
 echo.
 echo ============================================================
-echo  SERVER DIED / STOPPED — exit code %EXITCODE%
+echo  SERVER DIED / STOPPED -- exit code %EXITCODE%
 echo ============================================================
 echo  The app is no longer listening on http://127.0.0.1:43127
 echo  ^(that is why the browser shows NetworkError / unable to connect^).
 echo.
 echo  Common causes:
 echo   1. This window was closed or Ctrl+C was pressed
-echo   2. Port 43127 already in use — close other Pricekeep windows
-echo   3. better-sqlite3 native crash — run: node -e "require('better-sqlite3')"
-echo   4. Stale build after git pull — delete .next then run.bat again
-echo   5. Disk/path issues under a folder with spaces
+echo   2. Port 43127 already in use -- close other Pricekeep windows
+echo   3. Stale build after git pull -- delete .next then run.bat again
+echo   4. Disk/path issues under a folder with spaces
 echo.
 echo  Try: npm run clean ^&^& npm install ^&^& run.bat
 echo  Or set FORCE_REBUILD=1 and run.bat again.

@@ -17,9 +17,9 @@ export interface TrackedOfferRow {
   notifyEnabled: boolean;
 }
 
-export function upsertTrackedOffers(offers: TrackedOfferRow[]) {
+export async function upsertTrackedOffers(offers: TrackedOfferRow[]) {
   if (!offers.length) return;
-  const db = getDb();
+  const db = await getDb();
   const stmt = db.prepare(`
     INSERT INTO tracked_offers (
       id, region, source_id, url, title, merchant, currency,
@@ -64,7 +64,7 @@ export function upsertTrackedOffers(offers: TrackedOfferRow[]) {
 }
 
 /** Append an initial / manual history point for a newly tracked URL. */
-export function appendPriceHistoryPoint(point: {
+export async function appendPriceHistoryPoint(point: {
   id: string;
   offerId: string;
   price: number;
@@ -72,7 +72,7 @@ export function appendPriceHistoryPoint(point: {
   capturedAt: string;
   source?: string;
 }) {
-  const db = getDb();
+  const db = await getDb();
   db.prepare(
     `INSERT INTO price_history (id, offer_id, price, currency, captured_at, source)
      VALUES (?, ?, ?, ?, ?, ?)`,
@@ -86,24 +86,26 @@ export function appendPriceHistoryPoint(point: {
   );
 }
 
-export function deleteTrackedOffer(offerId: string) {
-  const db = getDb();
+export async function deleteTrackedOffer(offerId: string) {
+  const db = await getDb();
   db.prepare(`DELETE FROM price_history WHERE offer_id = ?`).run(offerId);
   db.prepare(`DELETE FROM tracked_offers WHERE id = ?`).run(offerId);
 }
 
-export function deleteTrackedOffersForProduct(productId: string) {
-  const db = getDb();
+export async function deleteTrackedOffersForProduct(productId: string) {
+  const db = await getDb();
   const rows = db
     .prepare(`SELECT id FROM tracked_offers WHERE product_id = ?`)
     .all(productId) as Array<{ id: string }>;
   for (const row of rows) {
-    deleteTrackedOffer(row.id);
+    await deleteTrackedOffer(row.id);
   }
 }
 
-export function listTrackedOffers(region?: RegionId): TrackedOfferRow[] {
-  const db = getDb();
+export async function listTrackedOffers(
+  region?: RegionId,
+): Promise<TrackedOfferRow[]> {
+  const db = await getDb();
   const rows = region
     ? (db
         .prepare(`SELECT * FROM tracked_offers WHERE region = ?`)

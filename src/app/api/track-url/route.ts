@@ -58,7 +58,7 @@ export async function POST(request: Request) {
       lastCheckedAt: now,
     };
 
-    upsertTrackedOffers([
+    await upsertTrackedOffers([
       {
         id: offer.id,
         region: region.id,
@@ -74,7 +74,7 @@ export async function POST(request: Request) {
         notifyEnabled: true,
       },
     ]);
-    appendPriceHistoryPoint({
+    await appendPriceHistoryPoint({
       id: `pp-${offerId}`,
       offerId: offer.id,
       price: scraped.price,

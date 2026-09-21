@@ -39,7 +39,7 @@ export async function POST(request: Request) {
   const result = await discoverLiveOffers(product, body.productId, region);
 
   if (result.offers?.length) {
-    upsertTrackedOffers(
+    await upsertTrackedOffers(
       result.offers.map((o) => ({
         id: o.id,
         region: region.id,

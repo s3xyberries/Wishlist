@@ -37,12 +37,12 @@ async function fetchPrice(offer: TrackedOfferRow) {
 export async function runDailyPriceCheck(options?: {
   region?: string;
 }): Promise<PriceCheckRunResult> {
-  const offers = listTrackedOffers(
+  const offers = await listTrackedOffers(
     options?.region === "au" || options?.region === "us"
       ? options.region
       : undefined,
   );
-  const db = getDb();
+  const db = await getDb();
   const result: PriceCheckRunResult = {
     checked: 0,
     updated: 0,

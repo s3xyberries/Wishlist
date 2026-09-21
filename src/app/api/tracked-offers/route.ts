@@ -40,7 +40,7 @@ export async function POST(request: Request) {
     notifyEnabled: o.notifyEnabled !== false,
   }));
 
-  upsertTrackedOffers(offers);
+  await upsertTrackedOffers(offers);
   return NextResponse.json({ ok: true, count: offers.length, region });
 }
 
@@ -53,11 +53,11 @@ export async function DELETE(request: Request) {
     return NextResponse.json({ error: "Invalid JSON" }, { status: 400 });
   }
   if (body.productId) {
-    deleteTrackedOffersForProduct(body.productId);
+    await deleteTrackedOffersForProduct(body.productId);
     return NextResponse.json({ ok: true, removed: "product" });
   }
   if (body.offerId) {
-    deleteTrackedOffer(body.offerId);
+    await deleteTrackedOffer(body.offerId);
     return NextResponse.json({ ok: true, removed: "offer" });
   }
   return NextResponse.json(

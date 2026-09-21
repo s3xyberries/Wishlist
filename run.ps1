@@ -35,14 +35,12 @@ Write-Host ""
 Write-Host "Ensuring dependencies (npm install)..."
 npm install
 if ($LASTEXITCODE -ne 0) {
-  Wait-ForKey "npm install failed. Install VS Build Tools (Desktop C++) for better-sqlite3."
+  Wait-ForKey "npm install failed. Check the messages above."
   exit 1
 }
 
-Write-Host "Checking better-sqlite3..."
-node -e "require('better-sqlite3'); console.log('better-sqlite3 OK')"
-if ($LASTEXITCODE -ne 0) {
-  Wait-ForKey "better-sqlite3 failed to load. Try: npm run clean:all; npm install"
+if (-not (Test-Path -LiteralPath (Join-Path $PSScriptRoot "node_modules\sql.js\package.json"))) {
+  Wait-ForKey "sql.js is missing after npm install. Delete node_modules and retry."
   exit 1
 }
 
@@ -76,7 +74,7 @@ npm start
 $code = if ($null -eq $LASTEXITCODE) { 0 } else { $LASTEXITCODE }
 
 Wait-ForKey @"
-SERVER DIED / STOPPED — exit code $code
+SERVER DIED / STOPPED -- exit code $code
 The app is no longer on http://127.0.0.1:43127 (browser NetworkError / unable to connect).
 Try: npm run clean; npm install; .\run.bat
 "@

@@ -1,4 +1,15 @@
-import { mkdirSync, existsSync, readFileSync, renameSync } from "node:fs";
+/**
+ * Catalog DB via sql.js (WASM SQLite) — no native addon.
+ * Exposes a better-sqlite3-like sync API once opened; persist to `.data/pricekeep.sqlite`.
+ */
+import {
+  mkdirSync,
+  existsSync,
+  readFileSync,
+  writeFileSync,
+  renameSync,
+  unlinkSync,
+} from "node:fs";
 import path from "node:path";
 import { CatalogUnavailableError } from "./errors";
 
@@ -8,34 +19,160 @@ const DATA_DIR = path.join(process.cwd(), ".data");
 export const CATALOG_DB_PATH = path.join(DATA_DIR, "pricekeep.sqlite");
 const LEGACY_JSON_PATH = path.join(DATA_DIR, "shared-catalog.json");
 
-/** Recommended Node for native better-sqlite3 builds (Windows/macOS/Linux). */
+/** Node floor for tooling; sql.js itself is pure WASM/JS (Windows-safe). */
 export const MIN_NODE_VERSION = "20.0.0";
+export const CATALOG_DRIVER = "sql.js" as const;
 
-type BetterSqlite3 = typeof import("better-sqlite3");
-type CatalogDatabase = import("better-sqlite3").Database;
+type SqlJsDatabase = import("sql.js").Database;
+type SqlJsStatic = import("sql.js").SqlJsStatic;
 
-let DatabaseCtor: BetterSqlite3 | null = null;
+export type SqlValue = string | number | null | Uint8Array | undefined;
+
+export interface CatalogStatement {
+  get(...params: SqlValue[]): Record<string, unknown> | undefined;
+  all(...params: SqlValue[]): Array<Record<string, unknown>>;
+  run(...params: SqlValue[]): void;
+}
+
+export interface CatalogDatabase {
+  prepare(sql: string): CatalogStatement;
+  exec(sql: string): void;
+  transaction(fn: () => void): () => void;
+}
+
+let SQL: SqlJsStatic | null = null;
+let rawDb: SqlJsDatabase | null = null;
 let dbSingleton: CatalogDatabase | null = null;
 let loadError: CatalogUnavailableError | null = null;
+let openPromise: Promise<CatalogDatabase> | null = null;
+let txDepth = 0;
+let dirty = false;
 
-/** Lazy-load native addon — top-level import crashes the whole Next process on Windows ABI mismatch. */
-function loadBetterSqlite3(): BetterSqlite3 {
-  if (DatabaseCtor) return DatabaseCtor;
+function persistIfNeeded() {
+  if (!rawDb || txDepth > 0 || !dirty) return;
   try {
-    // eslint-disable-next-line @typescript-eslint/no-require-imports
-    DatabaseCtor = require("better-sqlite3") as BetterSqlite3;
-    return DatabaseCtor;
+    mkdirSync(DATA_DIR, { recursive: true });
+    const data = rawDb.export();
+    writeFileSync(CATALOG_DB_PATH, Buffer.from(data));
+    dirty = false;
+    // Drop leftover WAL files from the old better-sqlite3 era.
+    for (const suffix of ["-wal", "-shm"]) {
+      const p = `${CATALOG_DB_PATH}${suffix}`;
+      if (existsSync(p)) {
+        try {
+          unlinkSync(p);
+        } catch {
+          // ignore
+        }
+      }
+    }
   } catch (err) {
     const detail = err instanceof Error ? err.message : String(err);
     throw new CatalogUnavailableError(
-      `better-sqlite3 failed to load (${detail}). Run \`npm install\` (rebuilds the native module). On Windows install Visual Studio Build Tools (Desktop C++).`,
+      `Failed to persist catalog DB (${detail}). Ensure .data/ is writable.`,
     );
   }
 }
 
+function markDirty() {
+  dirty = true;
+  persistIfNeeded();
+}
+
+function bindParams(stmt: import("sql.js").Statement, params: SqlValue[]) {
+  if (!params.length) return;
+  // sql.js bind is 1-based for ? placeholders when using array
+  stmt.bind(params as (string | number | null | Uint8Array)[]);
+}
+
+function createAdapter(db: SqlJsDatabase): CatalogDatabase {
+  return {
+    prepare(sql: string): CatalogStatement {
+      return {
+        get(...params: SqlValue[]) {
+          const stmt = db.prepare(sql);
+          try {
+            bindParams(stmt, params);
+            if (stmt.step()) {
+              return stmt.getAsObject() as Record<string, unknown>;
+            }
+            return undefined;
+          } finally {
+            stmt.free();
+          }
+        },
+        all(...params: SqlValue[]) {
+          const stmt = db.prepare(sql);
+          const rows: Array<Record<string, unknown>> = [];
+          try {
+            bindParams(stmt, params);
+            while (stmt.step()) {
+              rows.push(stmt.getAsObject() as Record<string, unknown>);
+            }
+            return rows;
+          } finally {
+            stmt.free();
+          }
+        },
+        run(...params: SqlValue[]) {
+          db.run(sql, params as (string | number | null | Uint8Array)[]);
+          markDirty();
+        },
+      };
+    },
+    exec(sql: string) {
+      const trimmed = sql.trim().toUpperCase();
+      if (trimmed === "BEGIN" || trimmed.startsWith("BEGIN ")) {
+        db.run("BEGIN");
+        txDepth += 1;
+        return;
+      }
+      if (trimmed === "COMMIT" || trimmed.startsWith("COMMIT ")) {
+        db.run("COMMIT");
+        txDepth = Math.max(0, txDepth - 1);
+        dirty = true;
+        persistIfNeeded();
+        return;
+      }
+      if (trimmed === "ROLLBACK" || trimmed.startsWith("ROLLBACK ")) {
+        db.run("ROLLBACK");
+        txDepth = Math.max(0, txDepth - 1);
+        dirty = false;
+        return;
+      }
+      db.exec(sql);
+      if (!trimmed.startsWith("SELECT") && !trimmed.startsWith("PRAGMA")) {
+        markDirty();
+      }
+    },
+    transaction(fn: () => void) {
+      return () => {
+        db.run("BEGIN");
+        txDepth += 1;
+        try {
+          fn();
+          db.run("COMMIT");
+          txDepth = Math.max(0, txDepth - 1);
+          dirty = true;
+          persistIfNeeded();
+        } catch (err) {
+          try {
+            db.run("ROLLBACK");
+          } catch {
+            // ignore
+          }
+          txDepth = Math.max(0, txDepth - 1);
+          dirty = false;
+          throw err;
+        }
+      };
+    },
+  };
+}
+
 function ensureSchema(db: CatalogDatabase) {
+  // sql.js: avoid WAL pragma (single-file export).
   db.exec(`
-    PRAGMA journal_mode = WAL;
     PRAGMA foreign_keys = ON;
 
     CREATE TABLE IF NOT EXISTS catalog_products (
@@ -134,7 +271,6 @@ type LegacyCatalogFile = {
       reviewCount?: number;
       lastScrapedAt: string;
       scrapeMode: string;
-      queryKeys?: string[];
       hitCount?: number;
     }
   >;
@@ -166,10 +302,10 @@ function migrateLegacyJson(db: CatalogDatabase) {
     return;
   }
 
-  const count = db.prepare("SELECT COUNT(*) AS n FROM catalog_products").get() as {
-    n: number;
-  };
-  if (count.n > 0) {
+  const count = db.prepare("SELECT COUNT(*) AS n FROM catalog_products").get() as
+    | { n: number }
+    | undefined;
+  if ((count?.n ?? 0) > 0) {
     try {
       renameSync(LEGACY_JSON_PATH, `${LEGACY_JSON_PATH}.migrated`);
     } catch {
@@ -230,22 +366,85 @@ function migrateLegacyJson(db: CatalogDatabase) {
       // ignore
     }
   } catch {
-    // leave JSON in place for a later retry
+    // leave JSON for retry
   }
 }
 
-export function getDb(): CatalogDatabase {
+async function loadSqlJs(): Promise<SqlJsStatic> {
+  if (SQL) return SQL;
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  const mod = require("sql.js") as
+    | ((cfg?: { locateFile?: (file: string) => string }) => Promise<SqlJsStatic>)
+    | {
+        default?: (cfg?: {
+          locateFile?: (file: string) => string;
+        }) => Promise<SqlJsStatic>;
+      };
+  const initSqlJs =
+    typeof mod === "function" ? mod : mod.default;
+  if (typeof initSqlJs !== "function") {
+    throw new CatalogUnavailableError(
+      "sql.js module did not export an initializer function",
+    );
+  }
+  // Resolve WASM from process.cwd() so Next/webpack cannot pass a numeric module id as a path.
+  const distDir = path.join(process.cwd(), "node_modules", "sql.js", "dist");
+  const wasmFile = path.join(distDir, "sql-wasm.wasm");
+  if (!existsSync(wasmFile)) {
+    throw new CatalogUnavailableError(
+      `sql.js WASM missing at ${wasmFile}. Run npm install.`,
+    );
+  }
+  SQL = await initSqlJs({
+    locateFile: (file: string) => {
+      if (typeof file !== "string") {
+        throw new CatalogUnavailableError(
+          `sql.js locateFile expected string, got ${typeof file}`,
+        );
+      }
+      return path.join(distDir, file);
+    },
+  });
+  return SQL;
+}
+
+async function openInternal(): Promise<CatalogDatabase> {
   if (dbSingleton) return dbSingleton;
   if (loadError) throw loadError;
 
   try {
     mkdirSync(DATA_DIR, { recursive: true });
-    const Database = loadBetterSqlite3();
-    const db = new Database(CATALOG_DB_PATH);
-    ensureSchema(db);
-    migrateLegacyJson(db);
-    dbSingleton = db;
-    return db;
+    const sqlJs = await loadSqlJs();
+
+    let fileBuffer: Uint8Array | undefined;
+    if (existsSync(CATALOG_DB_PATH)) {
+      try {
+        fileBuffer = new Uint8Array(readFileSync(CATALOG_DB_PATH));
+      } catch {
+        fileBuffer = undefined;
+      }
+    }
+
+    try {
+      rawDb = fileBuffer?.length
+        ? new sqlJs.Database(fileBuffer)
+        : new sqlJs.Database();
+    } catch {
+      // Corrupt / incompatible (e.g. incomplete WAL from better-sqlite3) — start fresh.
+      try {
+        renameSync(CATALOG_DB_PATH, `${CATALOG_DB_PATH}.bak-${Date.now()}`);
+      } catch {
+        // ignore
+      }
+      rawDb = new sqlJs.Database();
+    }
+
+    dbSingleton = createAdapter(rawDb);
+    ensureSchema(dbSingleton);
+    migrateLegacyJson(dbSingleton);
+    dirty = true;
+    persistIfNeeded();
+    return dbSingleton;
   } catch (err) {
     if (err instanceof CatalogUnavailableError) {
       loadError = err;
@@ -253,24 +452,36 @@ export function getDb(): CatalogDatabase {
     }
     const detail = err instanceof Error ? err.message : String(err);
     loadError = new CatalogUnavailableError(
-      `Shared catalog failed to open (${detail}). Ensure Node.js >= ${MIN_NODE_VERSION}, run \`npm install\` (rebuilds better-sqlite3), and that .data/ is writable.`,
+      `Shared catalog failed to open (${detail}). sql.js could not initialize. Ensure .data/ is writable and run \`npm install\`.`,
     );
     throw loadError;
   }
 }
 
-export function isCatalogAvailable(): boolean {
+/** Open (or return) the catalog DB. Always await this — never import native addons. */
+export async function getDb(): Promise<CatalogDatabase> {
+  if (dbSingleton) return dbSingleton;
+  if (!openPromise) {
+    openPromise = openInternal().catch((err) => {
+      openPromise = null;
+      throw err;
+    });
+  }
+  return openPromise;
+}
+
+export async function isCatalogAvailable(): Promise<boolean> {
   try {
-    getDb();
+    await getDb();
     return true;
   } catch {
     return false;
   }
 }
 
-export function catalogAvailabilityNote(): string | null {
+export async function catalogAvailabilityNote(): Promise<string | null> {
   try {
-    getDb();
+    await getDb();
     return null;
   } catch (err) {
     return err instanceof Error ? err.message : String(err);

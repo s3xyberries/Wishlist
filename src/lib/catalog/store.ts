@@ -103,7 +103,7 @@ export async function lookupQueryCache(
   const queryKey = normalizeQuery(query);
   if (!queryKey) return null;
 
-  const db = getDb();
+  const db = await getDb();
   const entryRow = db
     .prepare(
       `SELECT query_key, query_text, scraped_at, source_mode
@@ -159,7 +159,7 @@ export async function matchCatalogProducts(
   const tokens = queryKey.split(" ").filter((t) => t.length >= 2);
   if (!tokens.length) return [];
 
-  const db = getDb();
+  const db = await getDb();
   const rows = db
     .prepare(`SELECT * FROM catalog_products WHERE region = ?`)
     .all(region) as ProductRow[];
@@ -193,7 +193,7 @@ export async function recordSearchResults(
   const queryKey = normalizeQuery(query);
   if (!queryKey || results.length === 0) return [];
 
-  const db = getDb();
+  const db = await getDb();
   const now = new Date().toISOString();
   const products: CatalogProduct[] = [];
 
@@ -284,7 +284,7 @@ export async function listCatalog(options?: {
   const q = options?.q ? normalizeQuery(options.q) : "";
   const tokens = q.split(" ").filter(Boolean);
 
-  const db = getDb();
+  const db = await getDb();
   let rows = db
     .prepare(
       `SELECT * FROM catalog_products WHERE region = ? ORDER BY last_scraped_at DESC`,

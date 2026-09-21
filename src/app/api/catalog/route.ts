@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
-import { catalogDbPath, CatalogUnavailableError } from "@/lib/catalog/db";
+import { catalogDbPath, CATALOG_DRIVER } from "@/lib/catalog/db";
+import { CatalogUnavailableError } from "@/lib/catalog/errors";
 import { listCatalog } from "@/lib/catalog/store";
 import { CATALOG_TTL_MS } from "@/lib/catalog/types";
 import { regionFromRequest } from "@/lib/region/server";
@@ -25,7 +26,7 @@ export async function GET(request: Request) {
       ttlMs: CATALOG_TTL_MS,
       currency: region.currency,
       dbPath: catalogDbPath(),
-      driver: "better-sqlite3",
+      driver: CATALOG_DRIVER,
       note:
         payload.totalProducts === 0
           ? `${region.shortLabel} shared catalog is empty. Search a product to scrape and save it.`
@@ -47,7 +48,7 @@ export async function GET(request: Request) {
         region: region.id,
         currency: region.currency,
         ttlMs: CATALOG_TTL_MS,
-        driver: "better-sqlite3",
+        driver: CATALOG_DRIVER,
         error: message,
         note: message,
       },

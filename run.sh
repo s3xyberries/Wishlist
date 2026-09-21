@@ -1,6 +1,5 @@
 #!/usr/bin/env bash
 # Pricekeep launcher for macOS/Linux (parity with run.bat).
-# Always runs from this script's directory (safe with spaces in the path).
 set -euo pipefail
 cd "$(cd "$(dirname "$0")" && pwd)"
 
@@ -22,7 +21,7 @@ fi
 echo "Node $(node -v)"
 
 if [[ ! -f package.json ]]; then
-  echo "package.json not found in $PWD. Run this script from inside the Wishlist repo folder."
+  echo "package.json not found in $PWD."
   exit 1
 fi
 
@@ -30,21 +29,20 @@ echo
 echo "Ensuring dependencies are installed (npm install)..."
 npm install
 
-if [[ ! -f node_modules/better-sqlite3/package.json ]]; then
-  echo "better-sqlite3 is missing after npm install. Delete node_modules and retry."
+if [[ ! -f node_modules/sql.js/package.json ]]; then
+  echo "sql.js is missing after npm install. Delete node_modules and retry."
   exit 1
 fi
 
-if [[ ! -f .next/BUILD_ID ]]; then
+if [[ ! -f .next/BUILD_ID ]] || [[ "${FORCE_REBUILD:-}" == "1" ]]; then
   echo
-  echo "Production build missing or incomplete — running npm run build..."
-  echo "(uses webpack so better-sqlite3 stays external)"
+  echo "Production build missing -- running npm run build..."
   rm -rf .next
   npm run build
 fi
 
 if [[ ! -f .next/BUILD_ID ]]; then
-  echo "Build finished but .next/BUILD_ID is still missing. App was not started."
+  echo "Build finished but .next/BUILD_ID is still missing."
   exit 1
 fi
 

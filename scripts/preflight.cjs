@@ -1,7 +1,7 @@
 /**
- * Preflight before next start — fails fast with a clear message instead of a silent crash.
+ * Preflight before next start -- fails fast with a clear message.
  */
-const { existsSync } = require("node:fs");
+const { existsSync, readFileSync } = require("node:fs");
 const { createServer } = require("node:net");
 const path = require("node:path");
 
@@ -22,18 +22,28 @@ if (!existsSync(path.join(root, ".next", "BUILD_ID"))) {
   fail("Missing .next/BUILD_ID. Run: npm run build");
 }
 
-if (!existsSync(path.join(root, "node_modules", "better-sqlite3", "package.json"))) {
-  fail("better-sqlite3 is not installed. Run: npm install");
+if (!existsSync(path.join(root, "node_modules", "sql.js", "package.json"))) {
+  fail("sql.js is not installed. Run: npm install");
+}
+
+const wasmPath = path.join(
+  root,
+  "node_modules",
+  "sql.js",
+  "dist",
+  "sql-wasm.wasm",
+);
+if (!existsSync(wasmPath)) {
+  fail(`sql.js WASM missing at ${wasmPath}. Re-run npm install.`);
 }
 
 try {
-  // Native load — if this throws/aborts, Windows ABI or build tools are wrong.
-  require("better-sqlite3");
-  console.log("[Pricekeep preflight] better-sqlite3 OK");
+  // Smoke: can we read the WASM bytes? (no native addon)
+  const n = readFileSync(wasmPath).byteLength;
+  if (n < 1000) fail("sql-wasm.wasm looks corrupt (too small)");
+  console.log("[Pricekeep preflight] sql.js WASM OK (", n, "bytes)");
 } catch (err) {
-  fail(
-    `better-sqlite3 failed to load: ${err && err.message ? err.message : err}. Run npm install; on Windows install VS Build Tools (Desktop C++).`,
-  );
+  fail(`Could not read sql.js WASM: ${err && err.message ? err.message : err}`);
 }
 
 function canListen(h, p) {
@@ -57,5 +67,5 @@ function canListen(h, p) {
     );
   }
   console.log(`[Pricekeep preflight] Port ${host}:${port} free`);
-  console.log("[Pricekeep preflight] OK — starting server…");
+  console.log("[Pricekeep preflight] OK -- starting server...");
 })();

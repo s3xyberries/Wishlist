@@ -7,8 +7,8 @@ Canonical GitHub repo: **https://github.com/s3xyberries/Wishlist**
 ## Requirements
 
 - **Node.js >= 20** (22+ recommended). `engines.node` is `>=20`.
-- Shared catalog uses **`better-sqlite3`** (portable native driver). We do **not** use Node’s built-in `node:sqlite` — that module is missing on many Windows builds even on Node 22.
-- **Windows + better-sqlite3:** `npm install` must succeed so the native addon is present (prebuild or compile). If install/build fails, install [Visual Studio Build Tools](https://visualstudio.microsoft.com/visual-cpp-build-tools/) (Desktop C++ workload) and retry `npm install`. Production builds use **`next build --webpack`** (not Turbopack) so Next does not try to bundle the native module.
+- Shared catalog uses **`sql.js`** (WASM SQLite -- pure JS, **no native addon**). We do **not** use `better-sqlite3` or Node’s `node:sqlite` (both have Windows/Node issues).
+- **Windows:** no Visual Studio Build Tools required for the database. `npm install` only needs a normal Node install. Production builds use **`next build --webpack`**.
 
 ## Run locally
 
@@ -18,8 +18,8 @@ Canonical GitHub repo: **https://github.com/s3xyberries/Wishlist**
 2. Double-click **`run.bat`** in the project folder (or right-click **`run.ps1`** → Run with PowerShell). Paths with spaces (e.g. `Desktop\Price Checker\Wishlist`) are fine — the launcher `cd`s into its own folder.
 3. Each launch runs **`npm install`**, then **`npm run build`** when `.next\BUILD_ID` is missing, and only starts after the build succeeds. Then it opens [http://127.0.0.1:43127](http://127.0.0.1:43127) (IPv4 loopback — the server also binds to `127.0.0.1`).
 4. Leave the console window open while you use Pricekeep. If it prints **SERVER DIED**, the Node process exited — that is why the browser shows NetworkError / unable to connect. Read the message in that window.
-5. If you see **“Could not find a production build”** or **“Can't resolve 'better-sqlite3'”**, delete `.next` (and `node_modules` if the module is missing), ensure VS Build Tools are installed, then double-click `run.bat` again. Do **not** run `next build` with Turbopack on Windows for this app.
-6. If Next warns that it ignored `package-lock.json` because of a file under `C:\Users\<you>\`, delete that **stray** `C:\Users\<you>\package-lock.json` (not the one inside this repo). `outputFileTracingRoot` in `next.config.ts` also pins the app to this project folder.
+5. If you see **“Could not find a production build”**, delete `.next`, then double-click `run.bat` again.
+6. If Next warns that it ignored `package-lock.json` because of a file under `C:\Users\<you>\`, delete that **stray** `C:\Users\<you>\package-lock.json` (not the one inside this repo).
 
 ### Disk size (~600MB)
 
@@ -58,12 +58,13 @@ npm run scheduler            # local daily cron (06:00 + boot run)
 If search shows an error, the UI now surfaces the real `/api/search` HTTP status and JSON `error`/`note` (not a vague “could not reach” message).
 
 1. Confirm the server is up on port **43127** (`npm run dev` or `npm start`).
-2. Hit [http://127.0.0.1:43127/api/health](http://127.0.0.1:43127/api/health) — should report `catalog.driver: "better-sqlite3"` and `catalog.available: true`.
-3. Hit [http://127.0.0.1:43127/api/search?q=bambu%20lab%20h2s&region=au](http://127.0.0.1:43127/api/search?q=bambu%20lab%20h2s&region=au) directly in the browser — you must see **JSON**, not an HTML page.
-4. If the UI says **NetworkError** / unable to connect: the **server process is down**. Check the `run.bat` window for **SERVER DIED**. Confirm [http://127.0.0.1:43127/api/ping](http://127.0.0.1:43127/api/ping) — if the browser cannot connect, restart `run.bat` and leave it open. Also try `node -e "require('better-sqlite3')"` in that folder.
+2. Hit [http://127.0.0.1:43127/api/health](http://127.0.0.1:43127/api/health) -- should report `catalog.driver: "sql.js"` and `catalog.available: true`.
+3. Hit [http://127.0.0.1:43127/api/search?q=bambu%20lab%20h2s&region=au](http://127.0.0.1:43127/api/search?q=bambu%20lab%20h2s&region=au) directly -- you must see **JSON**, not an HTML page.
+4. If the UI says **NetworkError** / unable to connect: the **server process is down**. Check the `run.bat` window for **SERVER DIED**. Confirm [http://127.0.0.1:43127/api/ping](http://127.0.0.1:43127/api/ping) -- if the browser cannot connect, restart `run.bat` and leave it open.
 5. If ping works but search fails with HTML: hard-refresh (Ctrl+Shift+R). Local loopback disables service workers.
-6. If `better-sqlite3` failed to build: `npm run clean:all`, install VS Build Tools if needed, `npm install`, then `run.bat`.
-7. Prefer `http://127.0.0.1:43127` over `http://localhost:43127` so the host matches `run.bat`.
+6. Prefer `http://127.0.0.1:43127` over `http://localhost:43127` so the host matches `run.bat`.
+
+Exit code **`-1073741819`** (`0xC0000005` ACCESS_VIOLATION) was caused by the old **native** `better-sqlite3` addon on Windows -- not by broken API route files. This build uses **sql.js** instead.
 
 ## What works now
 
@@ -79,9 +80,9 @@ If search shows an error, the UI now surfaces the real `/api/search` HTTP status
 - Daily scheduler: `npm run price-check:daily` or `GET /api/scheduler/run`
 - In-app notifications feed (localStorage) + PWA shell
 
-## Shared catalog (SQLite via better-sqlite3)
+## Shared catalog (SQLite via sql.js)
 
-Successful scrapes land in **`.data/pricekeep.sqlite`**. Driver: **`better-sqlite3`** (not `node:sqlite`). Legacy `.data/shared-catalog.json` is migrated once on startup. Catalog rows are keyed by **region**; TTL reuse is per-region. UI badges show **From catalog** vs **Fresh scrape**. If the catalog cannot open, search still attempts a live scrape and shows a warning.
+Successful scrapes land in **`.data/pricekeep.sqlite`**. Driver: **`sql.js`** (WASM -- no native C++ addon). Legacy `.data/shared-catalog.json` is migrated once on startup. An old better-sqlite3 WAL file that fails to open is backed up and the catalog is recreated. Catalog rows are keyed by **region**; TTL reuse is per-region. UI badges show **From catalog** vs **Fresh scrape**. If the catalog cannot open, search still attempts a live scrape and shows a warning.
 
 ## Scrape policy (important)
 
@@ -117,7 +118,7 @@ PRICE_CHECK_CRON=0 6 * * * # for npm run scheduler
 
 ## Stack
 
-Next.js (App Router) · TypeScript · Tailwind CSS · shadcn/ui · cheerio · **better-sqlite3** · node-cron (dev scheduler) · localStorage
+Next.js (App Router) · TypeScript · Tailwind CSS · shadcn/ui · cheerio · **sql.js** · node-cron (dev scheduler) · localStorage
 
 ## Migration note
 
