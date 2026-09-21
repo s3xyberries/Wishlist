@@ -51,13 +51,16 @@ async function scrapeOfficialPdp(
     $('meta[property="og:image"]').attr("content") ||
     "https://images.unsplash.com/photo-1472851294608-062f824d29cc?auto=format&fit=crop&w=400&h=400&q=80";
 
+  // Prefer region currency for regional official stores (Shopify often emits USD).
+  const currency = region.currency;
+
   return {
     id: `official-${region.id}-${entry.id}`,
     title,
     brand: entry.brand,
     imageUrl: image,
     priceSnippet: price,
-    currency: ld?.currency || region.currency,
+    currency,
     merchantHint: `${entry.brand} official store (${region.shortLabel})`,
     sourceHint: "shopping",
     productUrl: entry.url,

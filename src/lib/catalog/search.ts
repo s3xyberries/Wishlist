@@ -127,8 +127,18 @@ export async function searchWithCatalog(
               live.results,
               live.mode,
             );
+            const byTitle = new Map(
+              live.results.map((r) => [r.title.toLowerCase(), r]),
+            );
             return {
-              results: recorded.map((h) => ({ ...h, fromCatalog: false })),
+              results: recorded.map((h) => {
+                const liveHit = byTitle.get(h.title.toLowerCase());
+                return {
+                  ...h,
+                  fromCatalog: false,
+                  productUrl: liveHit?.productUrl ?? h.productUrl,
+                };
+              }),
               mode: live.mode,
               note: `${live.note} Saved to ${region.shortLabel} catalog.`,
               origin: "scrape",
@@ -181,7 +191,16 @@ export async function searchWithCatalog(
         live.mode,
       );
       return {
-        results: recorded.map((h) => ({ ...h, fromCatalog: false })),
+        results: recorded.map((h) => {
+          const liveHit = live.results.find(
+            (r) => r.title.toLowerCase() === h.title.toLowerCase(),
+          );
+          return {
+            ...h,
+            fromCatalog: false,
+            productUrl: liveHit?.productUrl ?? h.productUrl,
+          };
+        }),
         mode: live.mode,
         note: forceRefresh
           ? `${live.note} Forced refresh — ${region.shortLabel} catalog updated.`
