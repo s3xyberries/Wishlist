@@ -3,7 +3,6 @@
  * intercepted. Deployed hosts that still want a shell can re-register a
  * future version; loopback never registers (see sw-register.tsx).
  */
-const CACHE = "pricekeep-shell-v4";
 
 self.addEventListener("install", (event) => {
   event.waitUntil(self.skipWaiting());

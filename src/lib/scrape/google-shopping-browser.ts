@@ -307,7 +307,7 @@ export async function searchGoogleShoppingViaBrowser(
       };
     }
 
-    let hits = await page.evaluate(extractHitsInPage);
+    const hits = await page.evaluate(extractHitsInPage);
     let results = mapHits(hits, region);
     if (!results.length) {
       results = parseGoogleShoppingHtml(html, region);
