@@ -1,0 +1,4 @@
+{
+  "name": "Pricekeep",
+  "install": "npm ci\nnpx playwright install --with-deps chromium"
+}
