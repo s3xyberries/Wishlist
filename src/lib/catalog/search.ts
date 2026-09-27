@@ -6,6 +6,7 @@ import {
 } from "@/lib/scrape/google-shopping";
 import type { RegionConfig } from "@/lib/region/config";
 import { CatalogUnavailableError } from "./errors";
+import { searchWatchedPages } from "@/lib/pages/store";
 import {
   lookupQueryCache,
   matchCatalogProducts,
@@ -62,7 +63,7 @@ function catalogErrorMessage(err: unknown): string | null {
  * Shared-catalog-aware search (region-scoped).
  * If the SQLite catalog is unavailable, falls through to live scrape so search still works.
  */
-export async function searchWithCatalog(
+async function searchWithCatalogCore(
   query: string,
   region: RegionConfig,
   options?: { forceRefresh?: boolean },
@@ -267,5 +268,49 @@ export async function searchWithCatalog(
     catalogWarning,
     googleStatus: live.googleStatus,
     googleNote: live.googleNote,
+  };
+}
+
+/** Saved pages are scraped from their own sites and included when the query matches. */
+export async function searchWithCatalog(
+  query: string,
+  region: RegionConfig,
+  options?: { forceRefresh?: boolean },
+): Promise<SearchWithCatalogResponse> {
+  const response = await searchWithCatalogCore(query, region, options);
+  const q = query.trim();
+  if (!q) return response;
+
+  let pages: Awaited<ReturnType<typeof searchWatchedPages>> = [];
+  try {
+    pages = await searchWatchedPages(q, region);
+  } catch (err) {
+    const warning = catalogErrorMessage(err);
+    if (!warning) return response;
+    return {
+      ...response,
+      catalogWarning: response.catalogWarning ?? warning,
+    };
+  }
+  if (!pages.length) return response;
+
+  const seen = new Set(
+    response.results
+      .map((hit) => hit.productUrl)
+      .filter((url): url is string => Boolean(url)),
+  );
+  const extra = pages.filter((page) => !page.productUrl || !seen.has(page.productUrl));
+  if (!extra.length) return response;
+
+  const pageHits = asCatalogHits(extra, false);
+  const hadResults = response.results.length > 0;
+  return {
+    ...response,
+    results: [...pageHits, ...response.results],
+    mode: hadResults ? response.mode : "scrape",
+    origin: hadResults ? response.origin : "scrape",
+    note: hadResults
+      ? `${response.note ?? ""} Included ${extra.length} saved page${extra.length === 1 ? "" : "s"} scraped from ${extra.length === 1 ? "its site" : "their sites"}.`.trim()
+      : `Scraped ${extra.length} saved page${extra.length === 1 ? "" : "s"} matching this search.`,
   };
 }

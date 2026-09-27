@@ -247,9 +247,27 @@ function ensureSchema(db: CatalogDatabase) {
       read INTEGER NOT NULL DEFAULT 0
     );
 
+    CREATE TABLE IF NOT EXISTS watched_pages (
+      id TEXT PRIMARY KEY,
+      region TEXT NOT NULL,
+      url TEXT NOT NULL,
+      label TEXT NOT NULL,
+      title TEXT NOT NULL,
+      brand TEXT,
+      image_url TEXT NOT NULL,
+      price REAL NOT NULL,
+      currency TEXT NOT NULL,
+      merchant TEXT NOT NULL,
+      last_scraped_at TEXT NOT NULL,
+      last_error TEXT,
+      created_at TEXT NOT NULL,
+      UNIQUE (region, url)
+    );
+
     CREATE INDEX IF NOT EXISTS idx_products_region ON catalog_products(region);
     CREATE INDEX IF NOT EXISTS idx_tracked_region ON tracked_offers(region);
     CREATE INDEX IF NOT EXISTS idx_history_offer ON price_history(offer_id);
+    CREATE INDEX IF NOT EXISTS idx_pages_region ON watched_pages(region);
   `);
 }
 

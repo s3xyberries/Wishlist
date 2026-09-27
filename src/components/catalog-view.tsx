@@ -77,15 +77,16 @@ export function CatalogView() {
 
   useEffect(() => {
     const id = window.setTimeout(() => {
-      void load(filter);
+      void load(applied);
     }, 0);
     return () => window.clearTimeout(id);
-  }, [load, regionId]);
+  }, [load, applied]);
 
   function onFilterSubmit(e: React.FormEvent) {
     e.preventDefault();
-    setApplied(filter.trim());
-    void load(filter);
+    const next = filter.trim();
+    setApplied(next);
+    if (next === applied) void load(next);
   }
 
   function track(item: CatalogProduct) {
