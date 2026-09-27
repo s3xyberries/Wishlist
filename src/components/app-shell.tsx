@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { Bell, Heart, Library, Search } from "lucide-react";
+import { Bell, Globe, Heart, Library, Search } from "lucide-react";
 import { RegionSwitcher } from "@/components/region-switcher";
 import { useWishlistStore } from "@/lib/store";
 import { cn } from "@/lib/utils";
@@ -10,6 +10,7 @@ import { cn } from "@/lib/utils";
 const nav = [
   { href: "/", label: "Search", icon: Search },
   { href: "/catalog", label: "Catalog", icon: Library },
+  { href: "/pages", label: "Pages", icon: Globe },
   { href: "/wishlist", label: "Wishlist", icon: Heart },
   { href: "/notifications", label: "Alerts", icon: Bell },
 ];

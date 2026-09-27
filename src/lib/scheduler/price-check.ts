@@ -3,6 +3,7 @@ import { getDb } from "@/lib/catalog/db";
 import { fetchAmazonPrice } from "@/lib/scrape/amazon";
 import { fetchEbayPrice } from "@/lib/scrape/ebay";
 import { fetchOfficialOrGenericPrice } from "@/lib/scrape/official";
+import { refreshWatchedPages } from "@/lib/pages/store";
 import { listTrackedOffers, type TrackedOfferRow } from "./tracked-offers";
 
 export interface PriceCheckRunResult {
@@ -10,6 +11,9 @@ export interface PriceCheckRunResult {
   updated: number;
   failed: number;
   alerts: number;
+  pagesChecked: number;
+  pagesUpdated: number;
+  pagesFailed: number;
   details: Array<{
     offerId: string;
     title: string;
@@ -48,6 +52,9 @@ export async function runDailyPriceCheck(options?: {
     updated: 0,
     failed: 0,
     alerts: 0,
+    pagesChecked: 0,
+    pagesUpdated: 0,
+    pagesFailed: 0,
     details: [],
   };
 
@@ -125,6 +132,15 @@ export async function runDailyPriceCheck(options?: {
       });
     }
   }
+
+  const pages = await refreshWatchedPages(
+    options?.region === "au" || options?.region === "us"
+      ? options.region
+      : undefined,
+  );
+  result.pagesChecked = pages.checked;
+  result.pagesUpdated = pages.updated;
+  result.pagesFailed = pages.failed;
 
   return result;
 }

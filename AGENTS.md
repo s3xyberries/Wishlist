@@ -17,4 +17,5 @@ Pricekeep is a single Next.js app. There is no separate database service: the sh
 - Checks: `npm run lint`, `npx tsc --noEmit`. There is no automated test script.
 - Health: `GET /api/health` should report `ok: true` and `catalog.driver: "sql.js"`. Liveness: `GET /api/ping`.
 - Core UI flow: search on `/`, confirm a result, then open `/wishlist`. Pasting a product URL on `/wishlist` tracks it without search. Wishlist rows live in `localStorage`.
+- Extra shops: `/pages` saves a product URL, scrapes its price (`POST /api/pages`), and search includes matching saved pages. The daily price check re-scrapes them.
 - Google Shopping often returns a captcha from datacenter IPs. Search still falls through to Amazon and official product pages, and catalog hits are reused for six hours.
